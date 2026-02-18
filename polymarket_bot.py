@@ -237,7 +237,7 @@ class PolymarketBot:
         market = self.find_active_market(slug)
         
         if market:
-            print(f"Found Next active market: {slug}")
+            print(f"Found current active market: {slug}")
             return market
         
         print(f"No Next active market found for timestamp: {market_timestamp}")
