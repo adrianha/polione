@@ -26,6 +26,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from web3 import Web3
+    WEB3_AVAILABLE = True
+except ImportError:
+    WEB3_AVAILABLE = False
+    print("Warning: web3.py not installed. Install with: pip install web3")
+
 from polymarket_bot import PolymarketBot
 
 
@@ -38,9 +45,76 @@ def format_time(seconds: int) -> str:
     return f"{minutes}m {secs}s"
 
 
+def get_balance(address: str) -> float:
+    """
+    Get USDC balance for a wallet address using Polygon RPC
+    Equivalent to the reference TypeScript function
+    
+    Args:
+        address: Wallet address to check balance for
+        
+    Returns:
+        USDC balance as float
+    """
+    if not WEB3_AVAILABLE:
+        print("⚠️  web3.py not available. Cannot check balance.")
+        return 0.0
+    
+    try:
+        # Get Polygon RPC URL from environment
+        RPC_URL = os.getenv(
+            "POLYGON_RPC",
+            "https://go.getblock.us/f3ba334a60f1446c9289381e569b2634"
+        )
+        
+        # USDC contract address on Polygon
+        USDC_CONTRACT_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+        
+        # USDC ERC20 ABI (minimal - just balanceOf)
+        USDC_ABI = [
+            {
+                "constant": True,
+                "inputs": [{"name": "_owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
+                "type": "function"
+            }
+        ]
+        
+        # Create RPC provider (equivalent to ethers JsonRpcProvider)
+        rpc_provider = Web3(Web3.HTTPProvider(RPC_URL))
+        
+        if not rpc_provider.is_connected():
+            print(f"⚠️  Failed to connect to Polygon RPC: {RPC_URL}")
+            return 0.0
+        
+        # Create USDC contract instance (equivalent to ethers.Contract)
+        usdc_contract = rpc_provider.eth.contract(
+            address=Web3.to_checksum_address(USDC_CONTRACT_ADDRESS),
+            abi=USDC_ABI
+        )
+        
+        # Get balance (equivalent to contract.balanceOf(address))
+        balance_usdc = usdc_contract.functions.balanceOf(
+            Web3.to_checksum_address(address)
+        ).call()
+        
+        # Format units with 6 decimals (equivalent to ethers.utils.formatUnits(balance, 6))
+        balance_usdc_real = balance_usdc / (10 ** 6)
+        
+        # Return as float (equivalent to parseFloat)
+        return float(balance_usdc_real)
+        
+    except Exception as e:
+        print(f"⚠️  Error getting balance: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0.0
+
+
 def check_balance_sufficient(bot: PolymarketBot, min_balance: float = 0.01) -> bool:
     """
-    Check if account has sufficient USDC balance
+    Check if account has sufficient USDC balance using Polygon RPC
     
     Args:
         bot: PolymarketBot instance
@@ -49,27 +123,25 @@ def check_balance_sufficient(bot: PolymarketBot, min_balance: float = 0.01) -> b
     Returns:
         True if balance is sufficient, False otherwise
     """
-    if not bot.client:
-        return False
+    if not bot.private_key:
+        print("⚠️  Private key not available. Cannot check balance.")
+        return True
     
     try:
-        # Get USDC balance (USDC token ID on Polygon is typically 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174)
-        # For CLOB, we might need to check differently
-        # Try to get balance using client method
-        if hasattr(bot.client, 'get_usdc_balance'):
-            balance = bot.client.get_usdc_balance()
-        elif hasattr(bot.client, 'get_balance'):
-            # Try common USDC address on Polygon
-            usdc_address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-            balance = bot.client.get_balance(usdc_address)
-        else:
-            # If we can't check, assume sufficient (let trading fail if not)
-            print("⚠️  Cannot check balance, assuming sufficient")
+        # Get wallet address from private key
+        if not WEB3_AVAILABLE:
+            print("⚠️  web3.py not available. Cannot check balance via RPC.")
+            print("⚠️  Assuming sufficient balance. Install web3: pip install web3")
             return True
+        funder = os.getenv("FUNDER")
+        print(f"📧 Wallet address: {funder}")
         
-        balance_float = float(balance) if balance else 0.0
+        # Get balance using the reference function pattern
+        balance_float = get_balance(funder)
+        
         print(f"💰 USDC Balance: {balance_float:.4f}")
-        
+        min_balance = float(os.getenv("ORDER_PRICE")) * float(os.getenv("ORDER_SIZE")) * 2
+        print(f"💰 Min balance: {min_balance:.4f}")
         if balance_float < min_balance:
             print(f"❌ Insufficient balance: {balance_float:.4f} < {min_balance:.4f}")
             return False
@@ -79,7 +151,10 @@ def check_balance_sufficient(bot: PolymarketBot, min_balance: float = 0.01) -> b
         
     except Exception as e:
         print(f"⚠️  Error checking balance: {e}")
+        import traceback
+        traceback.print_exc()
         # Assume sufficient if we can't check
+        print("⚠️  Assuming sufficient balance due to error.")
         return True
 
 

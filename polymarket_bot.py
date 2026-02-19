@@ -3,6 +3,7 @@ PolymarketBot - Trading bot for Polymarket BTC 5-minute up/down markets
 """
 import json
 import time
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 import requests
@@ -509,50 +510,12 @@ class PolymarketBot:
         Returns:
             Unix timestamp of market close, or None if not found
         """
-        if market is None:
-            market = self.find_current_market()
-        
-        if not market:
-            return None
-        
-        try:
-            # Try to get expiration from market data
-            # Markets typically expire 5 minutes after start
-            markets = market.get('markets', [])
-            if markets and len(markets) > 0:
-                main_market = markets[0]
-                # Try different possible field names
-                expiration = (
-                    main_market.get('expirationTimestamp') or
-                    main_market.get('expiration_timestamp') or
-                    main_market.get('endDate') or
-                    main_market.get('end_date') or
-                    main_market.get('endTime') or
-                    main_market.get('end_time')
-                )
-                
-                if expiration:
-                    # Convert to int if it's a string or other type
-                    return int(expiration)
+        if market:
             
-            # Fallback: calculate from market timestamp (5 minutes = 300 seconds)
-            # Extract timestamp from slug or calculate
-            slug = market.get('slug', '')
-            if slug:
-                # Extract timestamp from slug: btc-updown-5m-{timestamp}
-                try:
-                    timestamp_str = slug.split('-')[-1]
-                    market_start = int(timestamp_str)
-                    # Market closes 5 minutes (300 seconds) after start
-                    return market_start + 300
-                except (ValueError, IndexError):
-                    pass
-            
-            return None
-            
-        except Exception as e:
-            print(f"Error getting market close time: {e}")
-            return None
+            dt = datetime.fromisoformat(market.get("endDate").replace("Z", "+00:00"))
+            return dt.timestamp()
+        else:
+            return None 
     
     def force_sell_all(self, token_ids: Dict[str, str]) -> Dict[str, Optional[Dict[Any, Any]]]:
         """
