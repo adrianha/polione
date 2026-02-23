@@ -2,6 +2,9 @@
 """
 Market Maker - Real-time order book monitoring for Polymarket BTC 5-min markets
 Uses PolymarketBot to find markets and PolymarketCLOBWebSocket for live bid/ask data
+
+Note: Trading strategy logic has been removed. Implement your own trading logic
+in the check_high_spread() function or other callbacks as needed.
 """
 
 import os
@@ -148,23 +151,19 @@ def main():
             display_realtime_data()
 
     def check_high_spread():
-        """Check if spread is over 0.05 for either outcome"""
+        """Check if spread is over 0.05 for either outcome (logging only)"""
         up = realtime_data["UP"]
         down = realtime_data["DOWN"]
         
         if up.get("spread") is not None and up["spread"] > 0.05:
             now = datetime.now().strftime("%H:%M:%S")
             print(f"⚠️  [{now}] HIGH SPREAD DETECTED - UP: {up['spread']:.4f} (Bid={up['bid']:.4f}, Ask={up['ask']:.4f})")
-            bot.place_limit_order_up(
-                token_ids=token_ids,
-                price=up["bid"],
-                size=1.0,
-                side="BUY"
-            )
+            # Note: Trading logic removed - implement your own strategy here
         
         if down.get("spread") is not None and down["spread"] > 0.05:
             now = datetime.now().strftime("%H:%M:%S")
             print(f"⚠️  [{now}] HIGH SPREAD DETECTED - DOWN: {down['spread']:.4f} (Bid={down['bid']:.4f}, Ask={down['ask']:.4f})")
+            # Note: Trading logic removed - implement your own strategy here
 
     def display_realtime_data():
         """Print one line with current best bids/asks for both tokens"""

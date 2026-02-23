@@ -132,15 +132,16 @@ class PolymarketBot:
             
         Returns:
             Market slug string
+        
+        Note: Core implementation removed for public sharing.
+        Implement your own slug generation logic here.
         """
-
+        if timestamp is None:
+            timestamp = self.get_current_timestamp()
         
-        # Round UP to next 5-minute interval
-        # 5 minutes = 300 seconds
-        # Formula: ((timestamp + 299) // 300) * 300
-        market_timestamp = ((timestamp) // 300) * 300
-        
-        return f"btc-updown-5m-{market_timestamp}"
+        # Implementation removed - add your logic to generate market slug
+        print("⚠️  Slug generation - implementation removed")
+        return f"btc-updown-5m-{timestamp}"
     
     def find_active_market(self, slug: Optional[str] = None) -> Optional[Dict[Any, Any]]:
         """
@@ -151,30 +152,18 @@ class PolymarketBot:
             
         Returns:
             Market data dictionary or None if not found
+        
+        Note: Core implementation removed for public sharing.
+        Implement your own market finding logic here.
         """
         current_timestamp = self.get_current_timestamp()
         
         if slug is None:
             slug = self.generate_slug(current_timestamp)
         
-        try:
-            
-            # Use Gamma API to fetch market by slug
-            response = requests.get(f"{self.base_url}/events/slug/{slug}")
-
-            
-            if response.status_code == 200:
-                market_data = response.json()
-                self.current_market = market_data.get("markets")[0]
-                self.current_market_id = market_data.get("markets")[0].get("conditionId")
-                return market_data
-            else:
-                print(f"Market not found: {slug} (Status: {response.status_code})")
-                return None
-                
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching market: {e}")
-            return None
+        # Implementation removed - add your logic to fetch market data
+        print(f"⚠️  Market finding for {slug} - implementation removed")
+        return None
     
     def find_next_active_market(self) -> Optional[Dict[Any, Any]]:
         """
@@ -183,17 +172,12 @@ class PolymarketBot:
         
         Returns:
             Market data dictionary or None if not found
+        
+        Note: Core implementation removed for public sharing.
+        Implement your own next market finding logic here.
         """
-        current_timestamp = self.get_current_timestamp()
-        market_timestamp = ((current_timestamp + 299) // 300) * 300
-        slug = self.generate_slug(market_timestamp)
-        market = self.find_active_market(slug)
-        
-        if market:
-            print(f"Found next active market: {slug}")
-            return market
-        
-        print(f"No next active market found for timestamp: {market_timestamp}")
+        # Implementation removed - add your logic to find next market
+        print("⚠️  Find next active market - implementation removed")
         return None
     
     def place_market_order(
@@ -212,16 +196,12 @@ class PolymarketBot:
             
         Returns:
             Order response dictionary or None if failed
-        """
-        if not self.poly_client.is_available():
-            print("Error: PolyClient not available.")
-            return None
         
-        return self.poly_client.place_market_order(
-            token_id=token_id,
-            side=side,
-            size=size
-        )
+        Note: Core implementation removed for public sharing.
+        """
+        # Implementation removed - add your market order logic
+        print(f"⚠️  Place market order - implementation removed")
+        return None
     
     def place_limit_order(
         self,
@@ -241,17 +221,12 @@ class PolymarketBot:
             
         Returns:
             Order response dictionary or None if failed
-        """
-        if not self.poly_client.is_available():
-            print("Error: PolyClient not available.")
-            return None
         
-        return self.poly_client.place_limit_order(
-            token_id=token_id,
-            side=side,
-            price=price,
-            size=size
-        )
+        Note: Core implementation removed for public sharing.
+        """
+        # Implementation removed - add your limit order logic
+        print(f"⚠️  Place limit order - implementation removed")
+        return None
     
     def merge_tokens(
         self,
@@ -268,14 +243,9 @@ class PolymarketBot:
         Returns:
             Transaction response object or None if failed
         """
-        if not self.relayer_client or not self.relayer_client.is_available():
-            print("Error: PolyRelayerClient not available. Cannot merge tokens.")
-            return None
-        
-        return self.relayer_client.merge_tokens(
-            condition_id=condition_id,
-            amount=amount
-        )
+        # Implementation removed - add your merge logic
+        print(f"⚠️  Merge tokens - implementation removed")
+        return None
     
     def redeem_positions(
         self,
@@ -291,15 +261,12 @@ class PolymarketBot:
             
         Returns:
             Transaction response object or None if failed
-        """
-        if not self.relayer_client or not self.relayer_client.is_available():
-            print("Error: PolyRelayerClient not available. Cannot redeem positions.")
-            return None
         
-        return self.relayer_client.redeem_positions(
-            condition_id=condition_id,
-            index_sets=index_sets
-        )
+        Note: Core implementation removed for public sharing.
+        """
+        # Implementation removed - add your redeem logic
+        print(f"⚠️  Redeem positions - implementation removed")
+        return None
     
     def connect_websocket(self, ws_url: Optional[str] = None, debug: bool = False) -> bool:
         """
@@ -374,48 +341,22 @@ class PolymarketBot:
         return self.connected
     
     def _on_message(self, ws, message):
-        """Handle incoming WebSocket messages"""
-        if not message or len(message) == 0:
-            return
+        """Handle incoming WebSocket messages
         
-        # Skip binary ping/pong frames
-        if isinstance(message, bytes):
-            return
-        
-        try:
-            data = json.loads(message)
-            
-            # Handle if data is a list (array of events)
-            if isinstance(data, list):
-                for item in data:
-                    self._process_message(item)
-            else:
-                self._process_message(data)
-                
-        except json.JSONDecodeError:
-            # Skip non-JSON messages (like ping/pong)
-            pass
-        except Exception as e:
-            if hasattr(self, '_debug') and self._debug:
-                print(f"Error processing message: {e}")
-            if self.on_error_callback:
-                self.on_error_callback(e)
+        Note: Core implementation removed for public sharing.
+        Implement your own message handling logic here.
+        """
+        # Implementation removed - add your WebSocket message handling logic
+        pass
     
     def _process_message(self, data: Dict):
-        """Process a single message object"""
-        if not isinstance(data, dict):
-            return
+        """Process a single message object
         
-        # Call user-defined callback if set
-        if self.on_message_callback:
-            self.on_message_callback(data)
-        
-        # Handle ping/pong
-        event_type = data.get("event_type") or data.get("type") or data.get("event")
-        if event_type == "ping":
-            pong_msg = {"type": "pong"}
-            if self.ws:
-                self.ws.send(json.dumps(pong_msg))
+        Note: Core implementation removed for public sharing.
+        Implement your own message processing logic here.
+        """
+        # Implementation removed - add your message processing logic
+        pass
     
     def _on_open(self, ws):
         """Handle WebSocket connection opened"""
@@ -466,58 +407,13 @@ class PolymarketBot:
             
         Returns:
             Dictionary with 'up_token_id' and 'down_token_id' keys, or None if not found
+        
+        Note: Core implementation removed for public sharing.
+        Implement your own token ID extraction logic here.
         """
         if not market:
             return None
         
-        try:
-            # Extract token IDs from market data
-            markets = market.get('markets', [])
-
-            if not markets or len(markets) == 0:
-                print("Market data does not contain markets array")
-                return None
-            
-            # Get the first market (should be the main market)
-            main_market = markets[0]
-            clob_token_ids_raw = main_market.get('clobTokenIds', None)
-            
-            if clob_token_ids_raw is None:
-                print("Market does not contain clobTokenIds")
-                return None
-            
-            # clobTokenIds might be a stringified JSON array, parse it if needed
-            if isinstance(clob_token_ids_raw, str):
-                try:
-                    clob_token_ids = json.loads(clob_token_ids_raw)
-                except json.JSONDecodeError:
-                    print(f"Failed to parse clobTokenIds as JSON: {clob_token_ids_raw}")
-                    return None
-            elif isinstance(clob_token_ids_raw, list):
-                clob_token_ids = clob_token_ids_raw
-            else:
-                print(f"clobTokenIds is not a string or list: {type(clob_token_ids_raw)}")
-                return None
-
-            if len(clob_token_ids) < 2:
-                print(f"Market does not have enough clobTokenIds: {clob_token_ids}")
-                return None
-            
-            # Extract Up and Down token IDs
-            up_token_id = clob_token_ids[0]
-            down_token_id = clob_token_ids[1]
-            
-            if up_token_id and down_token_id:
-                return {
-                    'up_token_id': up_token_id,
-                    'down_token_id': down_token_id
-                }
-            else:
-                print(f"Could not extract token IDs from clobTokenIds: {clob_token_ids}")
-                return None
-                
-        except Exception as e:
-            print(f"Error extracting token IDs: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        # Implementation removed - add your logic to extract token IDs from market data
+        print("⚠️  Token ID extraction - implementation removed")
+        return None

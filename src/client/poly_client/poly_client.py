@@ -110,25 +110,10 @@ class PolyClient:
             print(f"Error: Price must be between 0.0 and 1.0, got {price}")
             return None
         
-        try:
-            order = OrderArgs(
-                token_id=token_id,
-                price=float(price),
-                size=float(size),
-                side=BUY if side.upper() == "BUY" else SELL
-            )
-            
-            # Create signed order
-            signed = self.client.create_order(order)
-            
-            # Post order
-            order_type = order_type or OrderType.GTC
-            resp = self.client.post_order(signed, order_type)
-            
-            return resp
-        except Exception as e:
-            print(f"Error placing limit order: {e}")
-            return None
+        # Core implementation removed for public sharing
+        # Implement your own order placement logic here
+        print(f"⚠️  Place limit order implementation removed - token_id: {token_id}, side: {side}, price: {price}, size: {size}")
+        return None
     
     def place_market_order(
         self,
@@ -159,24 +144,10 @@ class PolyClient:
             print(f"Error: Invalid side '{side}'. Must be 'BUY' or 'SELL'")
             return None
         
-        try:
-            order = MarketOrderArgs(
-                token_id=token_id,
-                amount=float(size),
-                side=BUY if side.upper() == "BUY" else SELL,
-                order_type=OrderType.FOK
-            )
-            
-            # Create signed market order
-            signed = self.client.create_market_order(order)
-            
-            # Post order with FOK (Fill or Kill) type
-            resp = self.client.post_order(signed, OrderType.FOK)
-            
-            return resp
-        except Exception as e:
-            print(f"Error placing market order: {e}")
-            return None
+        # Core implementation removed for public sharing
+        # Implement your own market order placement logic here
+        print(f"⚠️  Place market order implementation removed - token_id: {token_id}, side: {side}, size: {size}")
+        return None
     
     def cancel_order(
         self,
@@ -192,22 +163,13 @@ class PolyClient:
             
         Returns:
             Cancel response dictionary or None if failed
+        
+        Note: Core implementation removed for public sharing.
+        Implement your own order cancellation logic here.
         """
-        if not self.client:
-            print("Error: CLOB client not initialized.")
-            return None
-        
-        if not CLOB_AVAILABLE:
-            print("Error: py-clob-client not available.")
-            return None
-        
-        try:
-            order_type = order_type or OrderType.IOC
-            resp = self.client.cancel_order(order_id, order_type)
-            return resp
-        except Exception as e:
-            print(f"Error canceling order: {e}")
-            return None
+        # Core implementation removed - add your order cancellation logic
+        print(f"⚠️  Cancel order implementation removed - order_id: {order_id}")
+        return None
     
     def get_orders(
         self,
@@ -225,19 +187,10 @@ class PolyClient:
             
         Returns:
             Orders response dictionary or None if failed
-        """
-        if not self.client:
-            print("Error: CLOB client not initialized.")
-            return None
         
-        try:
-            # Use the client's method to get orders
-            # Note: Actual method name may vary based on py-clob-client version
-            if hasattr(self.client, 'get_orders'):
-                return self.client.get_orders(market=market, status=status, limit=limit)
-            else:
-                print("Warning: get_orders method not available on client")
-                return None
-        except Exception as e:
-            print(f"Error getting orders: {e}")
-            return None
+        Note: Core implementation removed for public sharing.
+        Implement your own order fetching logic here.
+        """
+        # Core implementation removed - add your order fetching logic
+        print("⚠️  Get orders implementation removed")
+        return None

@@ -134,35 +134,10 @@ class PolyRelayerClient:
             print("Error: Web3 not available. Cannot merge tokens.")
             return None
         
-        try:
-            # Default values
-            collateral_token = collateral_token or self.USDC_ADDRESS
-            parent_collection_id = b"\x00" * 32
-            partition = partition or [1, 2]
-            
-            # Ensure condition_id has 0x prefix
-            condition_id_bytes32 = self._condition_id_to_bytes32(condition_id)
-            data_hex = self.encode_merge_collateral_data(condition_id_bytes32, partition, collateral_token, amount, parent_collection_id)
-            tx = SafeTransaction(
-                to=self.CTF_EXCHANGE_ADDRESS,
-                operation = OperationType.Call,
-                data=data_hex,
-                value="0"
-            )
-            
-            print(f"Merge transaction: {tx}")
-            # Execute transaction
-            response = self.client.execute([tx], "Merge positions")
-            response.wait()
-            print(f"Merge transaction hash: {response.transaction_hash}")
-            print("Merge complete!")
-            return response
-            
-        except Exception as e:
-            print(f"Error merging tokens: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        # Core implementation removed for public sharing
+        # Implement your own merge logic here
+        print(f"⚠️  Merge tokens implementation removed - condition_id: {condition_id}, amount: {amount}")
+        return None
     
     def redeem_positions(
         self,
@@ -191,32 +166,10 @@ class PolyRelayerClient:
             print("Error: Web3 not available. Cannot redeem positions.")
             return None
         
-        try:
-            index_sets = index_sets if index_sets is not None else [1, 2]
-            collateral_token = collateral_token if collateral_token is not None else self.USDC_ADDRESS
-            parent_collection_id = b"\x00" * 32
-            condition_id_bytes32 = self._condition_id_to_bytes32(condition_id)
-            data_hex = self.encode_redeem_collateral_data(condition_id_bytes32, index_sets, collateral_token, parent_collection_id) # Default values
-            
-            tx = SafeTransaction(
-                to=self.CTF_EXCHANGE_ADDRESS,
-                operation = OperationType.Call,
-                data=data_hex,
-                value="0"
-            )
-
-            print(f"Redeem transaction: {tx}")
-            response = self.client.execute([tx], "Redeem winnings")
-            response.wait()
-            print(f"Redeem transaction hash: {response.transaction_hash}")
-            print("Redeem complete!")
-            return response
-
-        except Exception as e:
-            print(f"Error redeeming positions: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        # Core implementation removed for public sharing
+        # Implement your own redeem logic here
+        print(f"⚠️  Redeem positions implementation removed - condition_id: {condition_id}")
+        return None
     
     def execute_transaction(
         self,
@@ -237,16 +190,10 @@ class PolyRelayerClient:
             print("Error: Relayer client not initialized. Cannot execute transaction.")
             return None
         
-        try:
-            response = self.client.execute(transactions, description)
-            response.wait()
-            print(f"Transaction hash: {response.transaction_hash}")
-            return response
-        except Exception as e:
-            print(f"Error executing transaction: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        # Core implementation removed for public sharing
+        # Implement your own transaction execution logic here
+        print("⚠️  Execute transaction implementation removed")
+        return None
 
 
 
@@ -256,8 +203,11 @@ class PolyRelayerClient:
         
         Args:
             signature: The signature of the function
+        
+        Note: Core implementation removed for public sharing.
         """
-        return keccak(text=signature)[:4]
+        # Implementation removed - add your function selector logic
+        return "0x00000000"
 
     def encode_redeem_collateral_data(self, condition_id: bytes, index_sets: List[int], collateral_token: str, parent_collection_id: bytes) -> str:
         """
@@ -268,13 +218,11 @@ class PolyRelayerClient:
             index_sets: Index sets to redeem (default: [1, 2] for binary markets)
             collateral_token: Collateral token address (default: USDC)
             parent_collection_id: Parent collection ID (default: bytes32(0))
-        """        
         
-        seleector = self.function_selector("redeemPositions(address,bytes32,bytes32,uint256[])")
-        encoded_data = encode(["address", "bytes32", "bytes32", "uint256[]"],
-         [to_checksum_address(collateral_token), parent_collection_id, condition_id, index_sets])
-        return "0x" +  (seleector + encoded_data).hex()
-
+        Note: Core implementation removed for public sharing.
+        """
+        # Implementation removed - add your encoding logic
+        return "0x"
 
     def encode_merge_collateral_data(self, condition_id: bytes, partition: List[int], collateral_token: str, amount: int, parent_collection_id: bytes) -> str:
         """
@@ -285,21 +233,17 @@ class PolyRelayerClient:
             partition: Partition/index set (default: [1, 2] for binary markets)
             collateral_token: Collateral token address (default: USDC)
             parent_collection_id: Parent collection ID (default: bytes32(0))
+        
+        Note: Core implementation removed for public sharing.
         """
-        seleector = self.function_selector("mergePositions(address,bytes32,bytes32,uint256[],uint256)")
-        encoded_data = encode(["address", "bytes32", "bytes32", "uint256[]", "uint256"],
-         [to_checksum_address(collateral_token), parent_collection_id, condition_id, partition, amount])
-        return "0x" +  (seleector + encoded_data).hex()
-
+        # Implementation removed - add your encoding logic
+        return "0x"
 
     def _condition_id_to_bytes32(self, condition_id: str) -> bytes:
-        """Convert hex condition_id (0x... or raw hex) to 32-byte bytes."""
-        raw = condition_id.strip()
-        if raw.startswith("0x"):
-            raw = raw[2:]
-        b = bytes.fromhex(raw)
-        if len(b) > 32:
-            return b[-32:]
-        if len(b) < 32:
-            return b"\x00" * (32 - len(b)) + b
-        return b
+        """
+        Convert hex condition_id (0x... or raw hex) to 32-byte bytes.
+        
+        Note: Core implementation removed for public sharing.
+        """
+        # Implementation removed - add your conversion logic
+        return b"\x00" * 32

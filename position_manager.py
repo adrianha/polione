@@ -12,6 +12,9 @@ Flow:
    - [Not Equal]
      - [30s before close?] → FORCE SELL → NEXT MARKET
      - [No] → WAIT 60s → RECHECK
+
+Note: This is a framework for position management. 
+Customize thresholds, timing, and trading logic according to your strategy.
 """
 import requests
 import os
@@ -55,61 +58,13 @@ def get_balance(address: str) -> float:
         
     Returns:
         USDC balance as float
-    """
-    if not WEB3_AVAILABLE:
-        print("⚠️  web3.py not available. Cannot check balance.")
-        return 0.0
     
-    try:
-        # Get Polygon RPC URL from environment
-        RPC_URL = os.getenv(
-            "POLYGON_RPC",
-            "https://go.getblock.us/f3ba334a60f1446c9289381e569b2634"
-        )
-        
-        # USDC contract address on Polygon
-        USDC_CONTRACT_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-        
-        # USDC ERC20 ABI (minimal - just balanceOf)
-        USDC_ABI = [
-            {
-                "constant": True,
-                "inputs": [{"name": "_owner", "type": "address"}],
-                "name": "balanceOf",
-                "outputs": [{"name": "balance", "type": "uint256"}],
-                "type": "function"
-            }
-        ]
-        
-        # Create RPC provider (equivalent to ethers JsonRpcProvider)
-        rpc_provider = Web3(Web3.HTTPProvider(RPC_URL))
-        
-        if not rpc_provider.is_connected():
-            print(f"⚠️  Failed to connect to Polygon RPC: {RPC_URL}")
-            return 0.0
-        
-        # Create USDC contract instance (equivalent to ethers.Contract)
-        usdc_contract = rpc_provider.eth.contract(
-            address=Web3.to_checksum_address(USDC_CONTRACT_ADDRESS),
-            abi=USDC_ABI
-        )
-        
-        # Get balance (equivalent to contract.balanceOf(address))
-        balance_usdc = usdc_contract.functions.balanceOf(
-            Web3.to_checksum_address(address)
-        ).call()
-        
-        # Format units with 6 decimals (equivalent to ethers.utils.formatUnits(balance, 6))
-        balance_usdc_real = balance_usdc / (10 ** 6)
-        
-        # Return as float (equivalent to parseFloat)
-        return float(balance_usdc_real)
-        
-    except Exception as e:
-        print(f"⚠️  Error getting balance: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0.0
+    Note: Core implementation removed for public sharing.
+    Implement your own balance checking logic here.
+    """
+    # Implementation removed - add your logic to fetch USDC balance
+    print(f"⚠️  Balance check for {address} - implementation removed")
+    return 0.0
 
 
 def check_balance_sufficient(bot: PolymarketBot, min_balance: float = 0.01) -> bool:
@@ -217,6 +172,9 @@ def process_market(bot: PolymarketBot, market: Dict[Any, Any], token_ids: Dict[s
         
     Returns:
         True if should continue to next market, False if should stop
+    
+    Note: Core implementation removed for public sharing.
+    Implement your own workflow logic here.
     """
     print("\n" + "="*60)
     print(f"📊 Processing Market")
@@ -229,109 +187,20 @@ def process_market(bot: PolymarketBot, market: Dict[Any, Any], token_ids: Dict[s
         return False
     
     # Get market close time
-    dt = datetime.fromisoformat(market.get("endDate").replace("Z", "+00:00"))
-    close_time = int(dt.timestamp())
-    if close_time:
-        close_dt = datetime.fromtimestamp(close_time)
-        print(f"⏰ Market closes at: {close_dt.strftime('%H:%M:%S')}")
+    # Implementation removed - add your logic here
     
     # Position check loop
     print("\n2️⃣  Entering position check loop...")
-    iteration = 0
     
-    while True:
-        iteration += 1
-        current_time = bot.get_current_timestamp()
-        close_flag = False
-        if close_time:
-            time_until_close = close_time - current_time
-            if time_until_close > 0:
-                print(f"\n⏱️  Time until close: {format_time(time_until_close)}")
-            else:
-                close_flag = True
-                print(f"\n⏱️  Market has closed")
-        
-        # Check positions
-        print(f"\n📈 Checking positions (iteration {iteration})...")
-
-        positions = get_positions(bot, token_ids)
-
-        if positions["up_balance"] > 0.0 and positions["down_balance"] > 0.0:
-            if not close_flag:
-            # Store market in bot for conditionId extraction
-                merge_amount = min(positions["up_balance"], positions["down_balance"])
-                print(f"Merge amount: {merge_amount}")
-                result = bot.merge_tokens(bot.current_market_id, int(merge_amount * 10 ** 6))
-                if result:
-                    print(f"✅ Successfully merged {merge_amount:.6f} tokens")
-                else:
-                    print("❌ Merge failed. Retrying in 60s...")
-                    time.sleep(30)
-                    continue
-        
-        
-        # Check if 30s before close
-        if is_near_market_close(close_time, seconds_before=30):
-            print("⏰ Market closes in 30s or less. Force selling all positions...")
-            if not close_flag:
-                if positions["up_balance"] > 0.0:
-                    results = bot.place_market_order(token_ids["up_token_id"], "SELL", positions["up_balance"])
-                    if results:
-                        print("✅ Force sell completed")
-                    else:
-                        print("❌ Force sell failed. Retrying in 60s...")
-                        time.sleep(1)
-                        continue
-                if positions["down_balance"] > 0.0:
-                    results = bot.place_market_order(token_ids["down_token_id"], "SELL", positions["down_balance"])
-                    if results:
-                        print("✅ Force sell completed")
-                    else:
-                        print("❌ Force sell failed. Retrying in 60s...")
-                        time.sleep(1)
-                        continue
-                print("\n➡️  Moving to next market...")
-                # Place orders for next epoch market
-                # Get order parameters from environment
-                order_price = float(os.getenv("ORDER_PRICE", "0.46"))
-                order_size = float(os.getenv("ORDER_SIZE", "5.0"))
-                
-                next_market = bot.find_next_active_market()
-                if next_market:
-                    next_token_ids = bot.get_token_ids(next_market)
-                    if next_token_ids:
-                        print(f"\n📋 Placing limit orders for next epoch market...")
-                        print(f"  Price: {order_price}, Size: {order_size}")
-                        print(f"  UP token: {next_token_ids['up_token_id']}")
-                        print(f"  DOWN token: {next_token_ids['down_token_id']}")
-                        up_order = bot.place_limit_order(
-                            token_id=next_token_ids["up_token_id"],
-                            price=order_price,
-                            size=order_size,
-                            side="BUY"
-                        )
-                        down_order = bot.place_limit_order(
-                            token_id=next_token_ids["down_token_id"],
-                            price=order_price,
-                            size=order_size,
-                            side="BUY"
-                        )
-                        if up_order and down_order:
-                            print("✅ Orders placed for next market. Moving to next market...")
-                            return True
-                        else:
-                            print("⚠️  Failed to place orders for next market")
-                            return False
-                    else:
-                        print("❌ Could not extract token IDs from next market.")
-                        return False
-                else:
-                    print("❌ Could not find next market. ")
-                    return False
-        
-        # Wait 60s and recheck
-        print("⏳ Waiting 30s before rechecking...")
-        time.sleep(30)
+    # Core workflow implementation removed for public sharing
+    # Implement your own:
+    # - Position checking logic
+    # - Merge token logic
+    # - Force sell logic
+    # - Order placement for next market
+    
+    print("⚠️  Core workflow implementation removed. Implement your own logic.")
+    return False
 
 
 def get_positions_balance(bot: PolymarketBot, token_id: str) -> float:
@@ -343,29 +212,13 @@ def get_positions_balance(bot: PolymarketBot, token_id: str) -> float:
         
     Returns:
         Balance as float, or 0.0 if error
+    
+    Note: Core implementation removed for public sharing.
+    Implement your own position checking logic here.
     """
-
-    params = {
-        "market": bot.current_market_id,
-        "status": "OPEN",
-        "limit": 50,
-        "user": bot.funder
-    }
-    url = os.getenv("GET_POSITION_URL")
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        if response.text != []:
-            data = response.json()
-            if data[0]["token"] == token_id:
-                return float(data[0]["positions"][0]["size"])
-            else:
-                return float(data[1]["positions"][0]["size"])
-        else:
-            print("No data found for token_id: ", token_id)
-            return 0.0
-    except Exception as e:
-
-            return 0.0
+    # Implementation removed - add your logic to fetch position balance
+    print(f"⚠️  Position balance check for {token_id} - implementation removed")
+    return 0.0
 
 def get_positions(bot: PolymarketBot, token_ids: Dict[str, str]) -> Dict[str, float]:
     """
@@ -376,17 +229,18 @@ def get_positions(bot: PolymarketBot, token_ids: Dict[str, str]) -> Dict[str, fl
         
     Returns:
         Dictionary with 'up_balance' and 'down_balance'
+    
+    Note: Core implementation removed for public sharing.
+    Implement your own position fetching logic here.
     """
     if not token_ids:
         return {"up_balance": 0.0, "down_balance": 0.0}
     
-    up_balance = get_positions_balance(bot, token_ids.get("up_token_id"))
-    down_balance = get_positions_balance(bot, token_ids.get("down_token_id"))
-    print("up_balance", up_balance * 10 ** 6)
-    print("down_balance", down_balance * 10 ** 6)
+    # Implementation removed - add your logic to fetch positions
+    print("⚠️  Position fetching implementation removed")
     return {
-        "up_balance": up_balance,
-        "down_balance": down_balance
+        "up_balance": 0.0,
+        "down_balance": 0.0
     }
 
 
