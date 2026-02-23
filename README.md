@@ -59,5 +59,4 @@ See `WORKFLOW.md` for detailed workflow and `polymarket_bot_v1.py` for API refer
 ## 📞 Contact
 
 - **Telegram**: [@ddev05](https://t.me/ddev05)
-- **Video Demo**: [YouTube](https://www.youtube.com/watch?v=DLhBdoVSUmk)
 
