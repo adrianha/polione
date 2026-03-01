@@ -138,29 +138,6 @@ def get_min_position(positions: Dict[str, float]) -> float:
     return min(up, down)
 
 
-def is_near_market_close( close_time: int, seconds_before: int = 30) -> bool:
-    """
-    Check if market is closing within specified seconds
-    
-    Args:
-        bot: PolymarketBot instance
-        market: Market data dictionary
-        seconds_before: How many seconds before close to trigger
-        
-    Returns:
-        True if market closes within seconds_before
-    """
-    close_time = close_time
-    if not close_time:
-        # If we can't determine close time, assume not close
-        return False
-    
-    current_time = time.time()
-    time_until_close = close_time - current_time
-    
-    return time_until_close <= seconds_before
-
-
 def process_market(bot: PolymarketBot, market: Dict[Any, Any], token_ids: Dict[str, str]) -> bool:
     """
     Process a single market according to the flow
@@ -202,23 +179,6 @@ def process_market(bot: PolymarketBot, market: Dict[Any, Any], token_ids: Dict[s
     print("⚠️  Core workflow implementation removed. Implement your own logic.")
     return False
 
-
-def get_positions_balance(bot: PolymarketBot, token_id: str) -> float:
-    """
-    Get balance for a specific token
-    
-    Args:
-        token_id: Token ID to check balance for
-        
-    Returns:
-        Balance as float, or 0.0 if error
-    
-    Note: Core implementation removed for public sharing.
-    Implement your own position checking logic here.
-    """
-    # Implementation removed - add your logic to fetch position balance
-    print(f"⚠️  Position balance check for {token_id} - implementation removed")
-    return 0.0
 
 def get_positions(bot: PolymarketBot, token_ids: Dict[str, str]) -> Dict[str, float]:
     """
