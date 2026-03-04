@@ -47,11 +47,7 @@ class PolyClient:
             signature_type: Signature type for orders
             funder: Optional funder address
         """
-        self.private_key = private_key
-        self.host = host
-        self.chain_id = chain_id
-        self.signature_type = signature_type
-        self.funder = funder
+
         
         # Initialize CLOB client if available
         if CLOB_AVAILABLE and ClobClient is not None:

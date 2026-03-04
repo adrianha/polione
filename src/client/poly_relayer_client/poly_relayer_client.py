@@ -59,12 +59,6 @@ class PolyRelayerClient:
             builder_secret: Optional Builder API secret (defaults to BUILDER_SECRET env var)
             builder_passphrase: Optional Builder API passphrase (defaults to BUILDER_PASS_PHRASE env var)
         """
-        self.relayer_url = relayer_url
-        self.chain_id = chain_id
-        self.private_key = private_key
-        self.builder_api_key = builder_api_key
-        self.builder_secret = builder_secret
-        self.builder_passphrase = builder_passphrase
         # Get builder credentials from args or environment
 
         
