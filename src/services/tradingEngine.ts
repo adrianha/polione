@@ -36,21 +36,38 @@ export class TradingEngine {
   }
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
-    const up = await this.clobClient.placeLimitOrder({
-      tokenId: tokenIds.upTokenId,
-      side: "BUY",
-      price: this.config.orderPrice,
-      size: this.config.orderSize
-    });
+    const batchResult = await this.clobClient.placeLimitOrdersBatch([
+      {
+        tokenId: tokenIds.upTokenId,
+        side: "BUY",
+        price: this.config.orderPrice,
+        size: this.config.orderSize
+      },
+      {
+        tokenId: tokenIds.downTokenId,
+        side: "BUY",
+        price: this.config.orderPrice,
+        size: this.config.orderSize
+      }
+    ]);
 
-    const down = await this.clobClient.placeLimitOrder({
-      tokenId: tokenIds.downTokenId,
-      side: "BUY",
-      price: this.config.orderPrice,
-      size: this.config.orderSize
-    });
+    if (batchResult && typeof batchResult === "object" && "dryRun" in batchResult) {
+      const dryRunPayload = batchResult as {
+        dryRun: boolean;
+        intents?: unknown[];
+      };
+      return {
+        up: dryRunPayload.intents?.[0],
+        down: dryRunPayload.intents?.[1]
+      };
+    }
 
-    return { up, down };
+    const posted = Array.isArray(batchResult) ? batchResult : [];
+
+    return {
+      up: posted[0] ?? batchResult,
+      down: posted[1] ?? batchResult
+    };
   }
 
   async forceSellAll(summary: { upSize: number; downSize: number }, tokenIds: TokenIds): Promise<{ up?: unknown; down?: unknown }> {

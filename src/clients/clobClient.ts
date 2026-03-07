@@ -2,6 +2,7 @@ import {
   Chain,
   ClobClient,
   OrderType,
+  type PostOrdersArgs,
   Side,
   SignatureType,
   type OrderPayload,
@@ -89,6 +90,48 @@ export class PolyClobClient {
       },
       OrderType.GTC
     );
+  }
+
+  async placeLimitOrdersBatch(params: Array<{
+    tokenId: string;
+    side: BotSide;
+    price: number;
+    size: number;
+    tickSize?: TickSize;
+    negRisk?: boolean;
+    postOnly?: boolean;
+  }>): Promise<unknown> {
+    if (this.config.dryRun) {
+      const intents: TradeIntent[] = params.map((item) => ({
+        action: "PLACE_LIMIT",
+        payload: item
+      }));
+      return { dryRun: true, intents };
+    }
+
+    const ordersArgs: PostOrdersArgs[] = [];
+    for (const item of params) {
+      const order = await this.client.createOrder(
+        {
+          tokenID: item.tokenId,
+          side: toSdkSide(item.side),
+          price: item.price,
+          size: item.size
+        },
+        {
+          tickSize: item.tickSize ?? "0.01",
+          negRisk: item.negRisk ?? false
+        }
+      );
+
+      ordersArgs.push({
+        order,
+        orderType: OrderType.GTC,
+        postOnly: item.postOnly
+      });
+    }
+
+    return this.client.postOrders(ordersArgs);
   }
 
   async placeMarketOrder(params: {
