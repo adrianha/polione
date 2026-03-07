@@ -188,7 +188,7 @@ export class PolymarketBot {
             },
             "Skipped new entry: market already has one paired entry"
           );
-          await sleep(this.config.positionRecheckSeconds);
+          await sleep(this.config.loopSleepSeconds);
           continue;
         }
 
@@ -217,7 +217,7 @@ export class PolymarketBot {
             this.logger.info({ forceSell, conditionId: entryConditionId }, "Force sell flow executed from entry guard");
           }
 
-          await sleep(this.config.positionRecheckSeconds);
+          await sleep(this.config.loopSleepSeconds);
           continue;
         }
 
