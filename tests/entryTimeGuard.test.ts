@@ -20,7 +20,7 @@ const config: BotConfig = {
   minSecondsToCloseForEntry: 60,
   loopSleepSeconds: 10,
   positionRecheckSeconds: 60,
-  requestTimeoutMs: 30_000,
+  requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
   evGuardEnabled: true,
@@ -32,30 +32,26 @@ const config: BotConfig = {
   logLevel: "info"
 };
 
-describe("market discovery integration", () => {
-  it("checks slug generation and condition id extraction", async () => {
-    const expected: MarketRecord = {
-      slug: "btc-updown-5m-1700000100",
-      conditionId: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      clobTokenIds: ["up-1", "down-1"]
+describe("entry time guard support", () => {
+  it("returns small positive seconds-to-close for near-end market", () => {
+    const gamma = {
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
     };
+    const service = new MarketDiscoveryService(config, gamma as never);
+    const endDate = new Date(Date.now() + 45_000).toISOString();
+    const seconds = service.getSecondsToMarketClose({ endDate });
 
-    const gammaClient = {
-      getMarketBySlug: async (slug: string): Promise<MarketRecord | null> => {
-        if (slug === expected.slug) {
-          return expected;
-        }
-        return null;
-      }
+    expect(seconds).not.toBeNull();
+    expect(seconds!).toBeLessThanOrEqual(45);
+    expect(seconds!).toBeGreaterThanOrEqual(1);
+  });
+
+  it("returns null when end date is missing", () => {
+    const gamma = {
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
     };
+    const service = new MarketDiscoveryService(config, gamma as never);
 
-    const service = new MarketDiscoveryService(config, gammaClient as never);
-    const slug = service.generateSlug(1_700_000_100);
-    const market = await gammaClient.getMarketBySlug(slug);
-
-    expect(slug).toBe("btc-updown-5m-1700000100");
-    expect(market?.slug).toBe(expected.slug);
-    expect(service.getConditionId(market!)).toBe(expected.conditionId);
-    expect(service.getTokenIds(market!)).toEqual({ upTokenId: "up-1", downTokenId: "down-1" });
+    expect(service.getSecondsToMarketClose({})).toBeNull();
   });
 });

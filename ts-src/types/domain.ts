@@ -18,6 +18,7 @@ export interface BotConfig {
   orderSize: number;
   positionEqualityTolerance: number;
   forceSellThresholdSeconds: number;
+  minSecondsToCloseForEntry: number;
   loopSleepSeconds: number;
   positionRecheckSeconds: number;
   requestTimeoutMs: number;

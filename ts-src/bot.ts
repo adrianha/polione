@@ -77,6 +77,23 @@ export class PolymarketBot {
           "Processing market"
         );
 
+        const secondsToCloseForEntry = this.marketDiscovery.getSecondsToMarketClose(market);
+        if (
+          secondsToCloseForEntry !== null &&
+          secondsToCloseForEntry <= this.config.minSecondsToCloseForEntry
+        ) {
+          this.logger.warn(
+            {
+              secondsToClose: secondsToCloseForEntry,
+              minRequired: this.config.minSecondsToCloseForEntry,
+              slug: market.slug
+            },
+            "Skipped entry: market too close to end time"
+          );
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
         const ev = await this.tradingEngine.evaluateEntry(tokenIds);
         this.logger.info({ ev }, "EV evaluation");
         if (!ev.allowed) {
