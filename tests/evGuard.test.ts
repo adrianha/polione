@@ -4,7 +4,6 @@ import { EvGuard } from "../src/services/evGuard.js";
 
 const baseConfig: BotConfig = {
   dryRun: true,
-  enableLiveTrading: false,
   privateKey: `0x${"1".repeat(64)}`,
   signatureType: 0,
   chainId: 137,

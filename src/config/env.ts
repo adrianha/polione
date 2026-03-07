@@ -3,7 +3,6 @@ import type { BotConfig } from "../types/domain.js";
 
 const schema = z.object({
   DRY_RUN: z.coerce.boolean().default(true),
-  ENABLE_LIVE_TRADING: z.coerce.boolean().default(false),
   PRIVATE_KEY: z
     .string()
     .regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
@@ -44,17 +43,8 @@ const schema = z.object({
 export const loadConfig = (): BotConfig => {
   const parsed = schema.parse(process.env);
 
-  if (parsed.ENABLE_LIVE_TRADING && parsed.DRY_RUN) {
-    throw new Error("Invalid safety flags: ENABLE_LIVE_TRADING=true requires DRY_RUN=false");
-  }
-
-  if (!parsed.ENABLE_LIVE_TRADING && !parsed.DRY_RUN) {
-    throw new Error("Unsafe configuration blocked: set DRY_RUN=true or ENABLE_LIVE_TRADING=true");
-  }
-
   return {
     dryRun: parsed.DRY_RUN,
-    enableLiveTrading: parsed.ENABLE_LIVE_TRADING,
     privateKey: parsed.PRIVATE_KEY as `0x${string}`,
     funder: parsed.FUNDER as `0x${string}` | undefined,
     signatureType: parsed.SIGNATURE_TYPE as 0 | 1 | 2,

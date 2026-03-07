@@ -45,7 +45,6 @@ export class PolymarketBot {
     this.logger.info(
       {
         dryRun: this.config.dryRun,
-        liveTrading: this.config.enableLiveTrading,
         userAddress,
         relayerEnabled: this.relayerClient.isAvailable()
       },

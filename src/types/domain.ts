@@ -2,7 +2,6 @@ export type Side = "BUY" | "SELL";
 
 export interface BotConfig {
   dryRun: boolean;
-  enableLiveTrading: boolean;
   privateKey: `0x${string}`;
   funder?: `0x${string}`;
   signatureType: 0 | 1 | 2;

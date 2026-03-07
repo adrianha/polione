@@ -30,11 +30,7 @@ bun run bot
 ## Safety Model
 
 - `DRY_RUN=true` means order and relayer writes are simulated only
-- Live execution requires both:
-  - `DRY_RUN=false`
-  - `ENABLE_LIVE_TRADING=true`
-
-If the flags are inconsistent, startup fails fast.
+- `DRY_RUN=false` enables live execution
 
 ## Profitability Guard (EV)
 

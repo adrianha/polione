@@ -4,7 +4,6 @@ import { MarketDiscoveryService } from "../src/services/marketDiscovery.js";
 
 const config: BotConfig = {
   dryRun: true,
-  enableLiveTrading: false,
   privateKey: `0x${"1".repeat(64)}`,
   signatureType: 0,
   chainId: 137,

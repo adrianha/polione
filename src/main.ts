@@ -8,8 +8,7 @@ const start = async (): Promise<void> => {
 
   logger.info(
     {
-      dryRun: config.dryRun,
-      enableLiveTrading: config.enableLiveTrading
+      dryRun: config.dryRun
     },
     config.dryRun
       ? "Starting bot in SAFE MODE (DRY_RUN=true)"
