@@ -23,6 +23,7 @@ export interface BotConfig {
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;
+  stateFilePath: string;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 }
 

@@ -22,6 +22,7 @@ const config: BotConfig = {
   requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
+  stateFilePath: ".bot-state.test.json",
   logLevel: "info"
 };
 

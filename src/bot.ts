@@ -8,6 +8,7 @@ import { MarketDiscoveryService } from "./services/marketDiscovery.js";
 import { TradingEngine } from "./services/tradingEngine.js";
 import { SettlementService } from "./services/settlement.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
+import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
 
 export class PolymarketBot {
@@ -21,6 +22,7 @@ export class PolymarketBot {
   private readonly marketDiscovery: MarketDiscoveryService;
   private readonly tradingEngine: TradingEngine;
   private readonly settlementService: SettlementService;
+  private readonly stateStore: StateStore;
 
   constructor(
     private readonly config: BotConfig,
@@ -33,6 +35,23 @@ export class PolymarketBot {
     this.marketDiscovery = new MarketDiscoveryService(config, this.gammaClient);
     this.tradingEngine = new TradingEngine(config, this.clobClient);
     this.settlementService = new SettlementService(this.relayerClient);
+    this.stateStore = new StateStore(config.stateFilePath);
+  }
+
+  private async markEnteredMarket(conditionId: string): Promise<void> {
+    this.enteredMarkets.add(conditionId);
+    try {
+      await this.stateStore.saveEnteredMarkets(this.enteredMarkets);
+    } catch (error) {
+      this.logger.error(
+        {
+          error,
+          stateFilePath: this.config.stateFilePath,
+          conditionId
+        },
+        "Failed to persist entered market state"
+      );
+    }
   }
 
   stop(): void {
@@ -43,11 +62,28 @@ export class PolymarketBot {
     await this.clobClient.init();
     const userAddress = await this.clobClient.getSignerAddress();
 
+    try {
+      const loaded = await this.stateStore.loadEnteredMarkets();
+      for (const conditionId of loaded) {
+        this.enteredMarkets.add(conditionId);
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          error,
+          stateFilePath: this.config.stateFilePath
+        },
+        "Failed to load persisted entered market state"
+      );
+    }
+
     this.logger.info(
       {
         dryRun: this.config.dryRun,
         userAddress,
-        relayerEnabled: this.relayerClient.isAvailable()
+        relayerEnabled: this.relayerClient.isAvailable(),
+        persistedEnteredMarketCount: this.enteredMarkets.size,
+        stateFilePath: this.config.stateFilePath
       },
       "Bot initialized"
     );
@@ -142,7 +178,7 @@ export class PolymarketBot {
         }
 
         const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
-        this.enteredMarkets.add(conditionId);
+        await this.markEnteredMarket(conditionId);
         this.logger.info({ paired }, "Placed paired limit buy orders");
 
         const positions = await this.dataClient.getPositions(userAddress, conditionId);
@@ -169,6 +205,15 @@ export class PolymarketBot {
         } else if (!equal && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
           const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
           this.logger.info({ forceSell }, "Force sell flow executed");
+        } else {
+          this.logger.info(
+            {
+              conditionId,
+              secondsToClose,
+              forceSellThreshold: this.config.forceSellThresholdSeconds
+            },
+            "No settlement action taken"
+          );
         }
 
         await sleep(this.config.positionRecheckSeconds);

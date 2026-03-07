@@ -39,6 +39,7 @@ const schema = z.object({
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   REQUEST_RETRIES: z.coerce.number().int().min(0).default(3),
   REQUEST_RETRY_BACKOFF_MS: z.coerce.number().int().min(0).default(500),
+  STATE_FILE_PATH: z.string().default(".bot-state.json"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info")
 });
 
@@ -68,6 +69,7 @@ export const loadConfig = (): BotConfig => {
     requestTimeoutMs: parsed.REQUEST_TIMEOUT_MS,
     requestRetries: parsed.REQUEST_RETRIES,
     requestRetryBackoffMs: parsed.REQUEST_RETRY_BACKOFF_MS,
+    stateFilePath: parsed.STATE_FILE_PATH,
     logLevel: parsed.LOG_LEVEL
   };
 };
