@@ -1,5 +1,5 @@
 {
-  "name": "polymarket-trading-bot",
+  "name": "polione",
   "version": "1.0.0",
   "description": "TypeScript Polymarket BTC 5-minute trading bot with safe mode defaults",
   "main": "dist-ts/main.js",
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Poly-Dev05/polymarket-trading-bot.git"
+    "url": "git+https://github.com/adrianha/polione.git"
   },
   "keywords": [],
   "author": "Adrian Hartanto",
@@ -20,9 +20,9 @@
   "packageManager": "bun@1.3.3",
   "type": "module",
   "bugs": {
-    "url": "https://github.com/Poly-Dev05/polymarket-trading-bot/issues"
+    "url": "https://github.com/adrianha/polione/issues"
   },
-  "homepage": "https://github.com/Poly-Dev05/polymarket-trading-bot#readme",
+  "homepage": "https://github.com/adrianha/polione#readme",
   "dependencies": {
     "@polymarket/clob-client": "^5.7.0",
     "@polymarket/relayer-client": "^4.1.0",

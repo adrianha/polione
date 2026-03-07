@@ -5,7 +5,7 @@ export const createLogger = (config: BotConfig) => {
   return pino({
     level: config.logLevel,
     base: {
-      service: "polymarket-ts-bot",
+      service: "polione",
       dryRun: config.dryRun
     }
   });
