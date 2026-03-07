@@ -61,6 +61,7 @@ export class PolymarketBot {
   async runForever(): Promise<void> {
     await this.clobClient.init();
     const userAddress = await this.clobClient.getSignerAddress();
+    const positionsAddress = this.config.funder ?? userAddress;
 
     try {
       const loaded = await this.stateStore.loadEnteredMarkets();
@@ -81,6 +82,7 @@ export class PolymarketBot {
       {
         dryRun: this.config.dryRun,
         userAddress,
+        positionsAddress,
         relayerEnabled: this.relayerClient.isAvailable(),
         persistedEnteredMarketCount: this.enteredMarkets.size,
         stateFilePath: this.config.stateFilePath
@@ -121,7 +123,7 @@ export class PolymarketBot {
         }
 
         const alreadyEnteredCurrentMarket = this.enteredMarkets.has(conditionId);
-        const preEntryPositions = await this.dataClient.getPositions(userAddress, conditionId);
+        const preEntryPositions = await this.dataClient.getPositions(positionsAddress, conditionId);
         const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
         const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
         const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);

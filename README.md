@@ -62,6 +62,7 @@ Use `.env.example` for all supported variables. Key values:
 - `ORDER_PRICE`, `ORDER_SIZE`
 - `FORCE_SELL_THRESHOLD_SECONDS`, `POSITION_EQUALITY_TOLERANCE`
 - `STATE_FILE_PATH` (persist one-pair-per-market state across restarts)
+- `FUNDER` (optional; used as positions address when set)
 - Optional relayer: `POLYMARKET_RELAYER_URL`, `POLYGON_RPC`
 
 ## Workflow
