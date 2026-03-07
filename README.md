@@ -4,7 +4,7 @@ TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mod
 
 ## Current Status
 
-- TypeScript implementation lives in `ts-src/`
+- TypeScript implementation lives in `src/`
 - Bot defaults to safe mode (`DRY_RUN=true`)
 
 ## Quick Start (TypeScript)
@@ -68,16 +68,16 @@ Config flags:
 
 ## Core TypeScript Modules
 
-- Entry point: `ts-src/main.ts`
-- Orchestration loop: `ts-src/bot.ts`
-- Env validation: `ts-src/config/env.ts`
-- CLOB adapter: `ts-src/clients/clobClient.ts`
-- Relayer adapter: `ts-src/clients/relayerClient.ts`
-- Gamma + data API clients: `ts-src/clients/gammaClient.ts`, `ts-src/clients/dataClient.ts`
-- Market logic: `ts-src/services/marketDiscovery.ts`
-- Position logic: `ts-src/services/positionManager.ts`
-- Trading + settlement: `ts-src/services/tradingEngine.ts`, `ts-src/services/settlement.ts`
-- EV filter: `ts-src/services/evGuard.ts`
+- Entry point: `src/main.ts`
+- Orchestration loop: `src/bot.ts`
+- Env validation: `src/config/env.ts`
+- CLOB adapter: `src/clients/clobClient.ts`
+- Relayer adapter: `src/clients/relayerClient.ts`
+- Gamma + data API clients: `src/clients/gammaClient.ts`, `src/clients/dataClient.ts`
+- Market logic: `src/services/marketDiscovery.ts`
+- Position logic: `src/services/positionManager.ts`
+- Trading + settlement: `src/services/tradingEngine.ts`, `src/services/settlement.ts`
+- EV filter: `src/services/evGuard.ts`
 
 ## Configuration
 

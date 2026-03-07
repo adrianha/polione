@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BotConfig, MarketRecord } from "../ts-src/types/domain.js";
-import { MarketDiscoveryService } from "../ts-src/services/marketDiscovery.js";
+import type { BotConfig, MarketRecord } from "../src/types/domain.js";
+import { MarketDiscoveryService } from "../src/services/marketDiscovery.js";
 
 const config: BotConfig = {
   dryRun: true,

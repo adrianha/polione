@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BotConfig } from "../ts-src/types/domain.js";
-import { EvGuard } from "../ts-src/services/evGuard.js";
+import type { BotConfig } from "../src/types/domain.js";
+import { EvGuard } from "../src/services/evGuard.js";
 
 const baseConfig: BotConfig = {
   dryRun: true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arePositionsEqual, summarizePositions } from "../ts-src/services/positionManager.js";
+import { arePositionsEqual, summarizePositions } from "../src/services/positionManager.js";
 
 describe("position decision logic", () => {
   it("summarizes up/down balances by token id", () => {
