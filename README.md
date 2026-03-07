@@ -1,70 +1,73 @@
 # Polymarket BTC 5-Minute Trading Bot
 
-🤖 Automated trading bot for Polymarket BTC 5-minute up/down markets. Trade 24/7 with automated position management and risk controls.
+TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mode defaults.
 
-[![Polymarket 5min Trading Bot](https://img.youtube.com/vi/DLhBdoVSUmk/maxresdefault.jpg)](https://www.youtube.com/watch?v=teeMT-c4S3o=1)
+## Current Status
 
-📹 **Demo Video**: [Watch on YouTube](https://www.youtube.com/watch?v=teeMT-c4S3o)
+- TypeScript implementation lives in `ts-src/`
+- Legacy Python files are kept temporarily for migration safety
+- Bot defaults to safe mode (`DRY_RUN=true`)
 
-## 📸 Screenshot
+## Quick Start (TypeScript)
 
-![Bot interface](image.png)
+1. Install dependencies:
 
-*Bot interface showing real-time trading on Polymarket BTC 5-minute up/down market with position management console*
-
-## ✨ Features
-
-- 🔍 **Auto Market Discovery** - Finds active BTC 5-minute markets automatically
-- 📊 **Smart Position Management** - Monitors and balances UP/DOWN positions
-- 🛡️ **Risk Protection** - Auto-sells before market close to prevent losses
-- ⚡ **Continuous Trading** - Runs across multiple 5-minute market epochs
-- 💰 **Token Merging** - Automatically recovers USDC from equal positions
-
-## 🚀 Quick Start
-
-1. **Install dependencies:**
 ```bash
-pip install -r requirements.txt
+npm install
 ```
 
-2. **Configure `.env` file:**
+2. Configure environment:
+
 ```bash
-PRIVATE_KEY=0x...              # Your wallet private key
-ORDER_PRICE=0.46               # Limit order price
-ORDER_SIZE=5.0                 # Order size
+cp .env.example .env
 ```
 
-3. **Run the bot:**
+3. Start bot in safe mode (default):
+
 ```bash
-python main.py
+npm run bot
 ```
 
-## 📋 How It Works
+## Safety Model
 
-The bot continuously:
-1. Finds the current BTC 5-minute market
-2. Monitors UP/DOWN token positions
-3. Merges equal positions to recover USDC
-4. Force sells before market close (30s threshold)
-5. Places orders for the next market automatically
+- `DRY_RUN=true` means order and relayer writes are simulated only
+- Live execution requires both:
+  - `DRY_RUN=false`
+  - `ENABLE_LIVE_TRADING=true`
 
-## 🔧 Configuration
+If the flags are inconsistent, startup fails fast.
 
-Key environment variables:
-- `PRIVATE_KEY` - Wallet private key (required)
-- `ORDER_PRICE` - Limit order price (default: 0.46)
-- `ORDER_SIZE` - Order size (default: 5.0)
-- `HOST` - CLOB API host (default: https://clob.polymarket.com)
+## Scripts
 
-## ⚠️ Security
+- `npm run bot` - run once in normal mode
+- `npm run dev` - run with watch mode
+- `npm run typecheck` - TypeScript type checks
+- `npm run test` - run test suite
+- `npm run build` - compile to `dist-ts/`
 
-Never commit your `.env` file or private key. Keep credentials secure.
+## Core TypeScript Modules
 
-## 📚 Documentation
+- Entry point: `ts-src/main.ts`
+- Orchestration loop: `ts-src/bot.ts`
+- Env validation: `ts-src/config/env.ts`
+- CLOB adapter: `ts-src/clients/clobClient.ts`
+- Relayer adapter: `ts-src/clients/relayerClient.ts`
+- Gamma + data API clients: `ts-src/clients/gammaClient.ts`, `ts-src/clients/dataClient.ts`
+- Market logic: `ts-src/services/marketDiscovery.ts`
+- Position logic: `ts-src/services/positionManager.ts`
+- Trading + settlement: `ts-src/services/tradingEngine.ts`, `ts-src/services/settlement.ts`
 
-See `WORKFLOW.md` for detailed workflow and `polymarket_bot_v1.py` for API reference.
+## Configuration
 
-## 📞 Contact
+Use `.env.example` for all supported variables. Key values:
 
-- **Telegram**: [S.E.I](https://t.me/sei_dev)
+- `PRIVATE_KEY` (required)
+- `CHAIN_ID` (`137` or `80002`)
+- `CLOB_API_HOST`, `GAMMA_API_BASE_URL`, `DATA_API_BASE_URL`
+- `ORDER_PRICE`, `ORDER_SIZE`
+- `FORCE_SELL_THRESHOLD_SECONDS`, `POSITION_EQUALITY_TOLERANCE`
+- Optional relayer: `POLYMARKET_RELAYER_URL`, `POLYGON_RPC`
 
+## Workflow
+
+Detailed roadmap and intended strategy are documented in `WORKFLOW.md`.

@@ -11,6 +11,12 @@ venv/
 # Environment variables
 .env
 
+# Node / TypeScript
+node_modules/
+dist-ts/
+coverage/
+*.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/
@@ -20,4 +26,3 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
-
