@@ -67,6 +67,7 @@ Use `.env.example` for all supported variables. Key values:
 - Optional builder headers for relayer auth:
   - local: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE`
   - remote signer: `BUILDER_SIGNER_URL`, `BUILDER_SIGNER_TOKEN`
+  - remote signer contract: accepts `{ method, path, body, timestamp? }` and returns `POLY_BUILDER_API_KEY`, `POLY_BUILDER_TIMESTAMP`, `POLY_BUILDER_PASSPHRASE`, `POLY_BUILDER_SIGNATURE`
 
 ## Workflow
 

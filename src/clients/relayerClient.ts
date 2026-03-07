@@ -164,30 +164,23 @@ export class PolyRelayerClient {
 
       if (shouldSignSubmit) {
         const body = data === undefined ? "" : JSON.stringify(data);
-        const payload = await builderConfig.generateBuilderHeaders(
+        const builderHeaders = await builderConfig.generateBuilderHeaders(
           PolyRelayerClient.BUILDER_HEADERS_METHOD,
           PolyRelayerClient.BUILDER_HEADERS_PATH,
           body
         );
 
-        if (payload) {
-          mergedHeaders = {
-            ...(headers ?? {}),
-            ...this.toHttpBuilderHeaders(payload)
-          };
+        if (!builderHeaders) {
+          throw new Error("Builder headers could not be generated for relayer /submit");
         }
+
+        mergedHeaders = {
+          ...(headers ?? {}),
+          ...builderHeaders,
+        };
       }
 
       return originalSend(endpoint, method, mergedHeaders, data, params);
-    };
-  }
-
-  private toHttpBuilderHeaders(payload: BuilderHeaderPayload): Record<string, string> {
-    return {
-      "POLY-BUILDER-API-KEY": payload.POLY_BUILDER_API_KEY,
-      "POLY-BUILDER-TIMESTAMP": payload.POLY_BUILDER_TIMESTAMP,
-      "POLY-BUILDER-PASSPHRASE": payload.POLY_BUILDER_PASSPHRASE,
-      "POLY-BUILDER-SIGNATURE": payload.POLY_BUILDER_SIGNATURE
     };
   }
 
