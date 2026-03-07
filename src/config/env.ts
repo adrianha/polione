@@ -1,8 +1,16 @@
 import { z } from "zod";
 import type { BotConfig } from "../types/domain.js";
 
+const boolString = z
+  .string()
+  .transform((value) => value.trim().toLowerCase())
+  .refine((value) => ["true", "false"].includes(value), {
+    message: "must be true or false",
+  })
+  .transform((value) => value === "true");
+
 const schema = z.object({
-  DRY_RUN: z.coerce.boolean().default(true),
+  DRY_RUN: boolString.default(true),
   PRIVATE_KEY: z
     .string()
     .regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
