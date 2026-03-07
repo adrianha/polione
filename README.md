@@ -5,7 +5,6 @@ TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mod
 ## Current Status
 
 - TypeScript implementation lives in `ts-src/`
-- Legacy Python files are kept temporarily for migration safety
 - Bot defaults to safe mode (`DRY_RUN=true`)
 
 ## Quick Start (TypeScript)
