@@ -110,15 +110,41 @@ export class PolymarketBot {
           continue;
         }
 
-        const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
-        this.logger.info({ paired }, "Placed paired limit buy orders");
-
         const conditionId = this.marketDiscovery.getConditionId(market);
         if (!conditionId) {
           this.logger.warn("Market missing condition ID; skipping settlement checks");
           await sleep(this.config.loopSleepSeconds);
           continue;
         }
+
+        const preEntryPositions = await this.dataClient.getPositions(userAddress, conditionId);
+        const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
+        const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
+        const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);
+        if (hasOpenExposure && !preEntryEqual) {
+          const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
+          this.logger.warn(
+            {
+              conditionId,
+              up: preEntrySummary.upSize,
+              down: preEntrySummary.downSize,
+              diff: preEntrySummary.differenceAbs,
+              secondsToClose
+            },
+            "Skipped new entry: existing position imbalance detected"
+          );
+
+          if (secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+            const forceSell = await this.tradingEngine.forceSellAll(preEntrySummary, tokenIds);
+            this.logger.info({ forceSell }, "Force sell flow executed from pre-entry imbalance check");
+          }
+
+          await sleep(this.config.positionRecheckSeconds);
+          continue;
+        }
+
+        const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
+        this.logger.info({ paired }, "Placed paired limit buy orders");
 
         const positions = await this.dataClient.getPositions(userAddress, conditionId);
         const summary = summarizePositions(positions, tokenIds);
