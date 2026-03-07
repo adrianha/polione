@@ -12,6 +12,7 @@ import { sleep } from "./utils/time.js";
 
 export class PolymarketBot {
   private stopped = false;
+  private readonly enteredMarkets = new Set<string>();
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
@@ -100,10 +101,24 @@ export class PolymarketBot {
           continue;
         }
 
+        const alreadyEnteredCurrentMarket = this.enteredMarkets.has(conditionId);
+        if (alreadyEnteredCurrentMarket) {
+          this.logger.info(
+            {
+              conditionId,
+              slug: market.slug
+            },
+            "Skipped new entry: market already has one paired entry"
+          );
+          await sleep(this.config.positionRecheckSeconds);
+          continue;
+        }
+
         const preEntryPositions = await this.dataClient.getPositions(userAddress, conditionId);
         const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
         const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
         const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);
+
         if (hasOpenExposure && !preEntryEqual) {
           const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
           this.logger.warn(
@@ -127,6 +142,7 @@ export class PolymarketBot {
         }
 
         const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
+        this.enteredMarkets.add(conditionId);
         this.logger.info({ paired }, "Placed paired limit buy orders");
 
         const positions = await this.dataClient.getPositions(userAddress, conditionId);
