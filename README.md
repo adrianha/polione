@@ -64,6 +64,9 @@ Use `.env.example` for all supported variables. Key values:
 - `STATE_FILE_PATH` (persist one-pair-per-market state across restarts)
 - `FUNDER` (optional; used as positions address when set)
 - Optional relayer: `POLYMARKET_RELAYER_URL`, `POLYGON_RPC`
+- Optional builder headers for relayer auth:
+  - local: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE`
+  - remote signer: `BUILDER_SIGNER_URL`, `BUILDER_SIGNER_TOKEN`
 
 ## Workflow
 

@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/adrianha/polione#readme",
   "dependencies": {
+    "@polymarket/builder-signing-sdk": "^1.0.0",
     "@polymarket/clob-client": "^5.7.0",
     "@polymarket/relayer-client": "^4.1.0",
     "pino": "^10.3.1",

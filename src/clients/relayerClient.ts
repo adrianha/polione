@@ -4,6 +4,11 @@ import {
   type RelayerTransactionResponse,
   type SafeTransaction
 } from "@polymarket/relayer-client";
+import {
+  BuilderConfig,
+  BuilderType,
+  type BuilderHeaderPayload
+} from "@polymarket/builder-signing-sdk";
 import { encodeFunctionData, type Hex, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon, polygonAmoy } from "viem/chains";
@@ -50,7 +55,11 @@ const normalizeBytes32 = (value: string): Hex => {
 };
 
 export class PolyRelayerClient {
+  private static readonly BUILDER_HEADERS_METHOD = "POST";
+  private static readonly BUILDER_HEADERS_PATH = "/submit";
+
   private readonly relayClient?: RelayClient;
+  private readonly builderConfig?: BuilderConfig;
   private readonly enabled: boolean;
 
   constructor(private readonly config: BotConfig) {
@@ -67,6 +76,119 @@ export class PolyRelayerClient {
     });
 
     this.relayClient = new RelayClient(config.polymarketRelayerUrl!, config.chainId, walletClient);
+
+    this.builderConfig = this.createBuilderConfig(config);
+    if (this.builderConfig) {
+      this.wrapRelayerSubmitWithBuilderHeaders(this.relayClient, this.builderConfig);
+    }
+  }
+
+  private createBuilderConfig(config: BotConfig): BuilderConfig | undefined {
+    const hasLocalCreds =
+      Boolean(config.builderApiKey) &&
+      Boolean(config.builderApiSecret) &&
+      Boolean(config.builderApiPassphrase);
+
+    const hasRemoteSigner = Boolean(config.builderSignerUrl);
+
+    if (!hasLocalCreds && !hasRemoteSigner) {
+      return undefined;
+    }
+
+    const hasPartialLocalCreds =
+      Boolean(config.builderApiKey) ||
+      Boolean(config.builderApiSecret) ||
+      Boolean(config.builderApiPassphrase);
+
+    if (!hasLocalCreds && hasPartialLocalCreds) {
+      throw new Error(
+        "Invalid builder configuration: BUILDER_API_KEY, BUILDER_API_SECRET, and BUILDER_API_PASSPHRASE must all be set"
+      );
+    }
+
+    if (hasLocalCreds) {
+      return new BuilderConfig({
+        localBuilderCreds: {
+          key: config.builderApiKey!,
+          secret: config.builderApiSecret!,
+          passphrase: config.builderApiPassphrase!
+        }
+      });
+    }
+
+    return new BuilderConfig({
+      remoteBuilderConfig: {
+        url: config.builderSignerUrl!,
+        token: config.builderSignerToken
+      }
+    });
+  }
+
+  private wrapRelayerSubmitWithBuilderHeaders(relayClient: RelayClient, builderConfig: BuilderConfig): void {
+    if (!builderConfig.isValid() || builderConfig.getBuilderType() === BuilderType.UNAVAILABLE) {
+      return;
+    }
+
+    if (!this.config.dryRun) {
+      const builderType = builderConfig.getBuilderType();
+      console.info("Builder signing enabled for relayer submit", { builderType });
+    }
+
+    const relayAny = relayClient as unknown as {
+      send: (
+        endpoint: string,
+        method: string,
+        headers?: Record<string, string>,
+        data?: unknown,
+        params?: unknown
+      ) => Promise<unknown>;
+      relayerUrl: string;
+    };
+
+    const originalSend = relayAny.send.bind(relayAny);
+    const relayerUrl = relayAny.relayerUrl;
+
+    relayAny.send = async (
+      endpoint: string,
+      method: string,
+      headers?: Record<string, string>,
+      data?: unknown,
+      params?: unknown
+    ): Promise<unknown> => {
+      let mergedHeaders = headers;
+
+      const shouldSignSubmit =
+        method.toUpperCase() === PolyRelayerClient.BUILDER_HEADERS_METHOD &&
+        endpoint.startsWith(relayerUrl) &&
+        endpoint.endsWith(PolyRelayerClient.BUILDER_HEADERS_PATH);
+
+      if (shouldSignSubmit) {
+        const body = data === undefined ? "" : JSON.stringify(data);
+        const payload = await builderConfig.generateBuilderHeaders(
+          PolyRelayerClient.BUILDER_HEADERS_METHOD,
+          PolyRelayerClient.BUILDER_HEADERS_PATH,
+          body
+        );
+
+        if (payload) {
+          mergedHeaders = {
+            ...(headers ?? {}),
+            ...this.toHttpBuilderHeaders(payload)
+          };
+        }
+      }
+
+      return originalSend(endpoint, method, mergedHeaders, data, params);
+    };
+  }
+
+  private toHttpBuilderHeaders(payload: BuilderHeaderPayload): Record<string, string> {
+    return {
+      "POLY-BUILDER-API-KEY": payload.POLY_BUILDER_API_KEY,
+      "POLY-BUILDER-TIMESTAMP": payload.POLY_BUILDER_TIMESTAMP,
+      "POLY-BUILDER-PASSPHRASE": payload.POLY_BUILDER_PASSPHRASE,
+      "POLY-BUILDER-SIGNATURE": payload.POLY_BUILDER_SIGNATURE
+    };
   }
 
   isAvailable(): boolean {

@@ -11,6 +11,11 @@ export interface BotConfig {
   dataApiBaseUrl: string;
   polygonRpc?: string;
   polymarketRelayerUrl?: string;
+  builderApiKey?: string;
+  builderApiSecret?: string;
+  builderApiPassphrase?: string;
+  builderSignerUrl?: string;
+  builderSignerToken?: string;
   marketSlugPrefix: string;
   marketIntervalSeconds: number;
   orderPrice: number;
