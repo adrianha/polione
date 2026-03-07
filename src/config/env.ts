@@ -1,8 +1,5 @@
-import dotenv from "dotenv";
 import { z } from "zod";
 import type { BotConfig } from "../types/domain.js";
-
-dotenv.config();
 
 const schema = z.object({
   DRY_RUN: z.coerce.boolean().default(true),
