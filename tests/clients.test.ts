@@ -22,12 +22,6 @@ const config: BotConfig = {
   requestTimeoutMs: 30_000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
-  evGuardEnabled: true,
-  evMinNetPerShare: 0.01,
-  evEstimatedFeeBps: 0,
-  evEstimatedSlippagePerShare: 0.002,
-  evEstimatedForceSellPenaltyPerShare: 0.004,
-  evEstimatedPartialFillPenaltyPerShare: 0.002,
   logLevel: "info"
 };
 

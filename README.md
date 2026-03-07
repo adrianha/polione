@@ -32,28 +32,6 @@ bun run bot
 - `DRY_RUN=true` means order and relayer writes are simulated only
 - `DRY_RUN=false` enables live execution
 
-## Profitability Guard (EV)
-
-The bot includes an EV guard that blocks new paired entries when expected value is too low.
-
-- Formula used per share:
-  - `net = 1 - (yesPrice + noPrice) - estimatedCosts`
-- Price source:
-  - Uses live CLOB midpoint prices for YES/NO tokens when available
-  - Falls back to `ORDER_PRICE` if live prices are unavailable
-- Estimated costs are configured by:
-  - `EV_ESTIMATED_FEE_BPS`
-  - `EV_ESTIMATED_SLIPPAGE_PER_SHARE`
-  - `EV_ESTIMATED_FORCE_SELL_PENALTY_PER_SHARE`
-  - `EV_ESTIMATED_PARTIAL_FILL_PENALTY_PER_SHARE`
-- Entry is allowed only if:
-  - `net >= EV_MIN_NET_PER_SHARE`
-
-Config flags:
-
-- `EV_GUARD_ENABLED=true`
-- `EV_MIN_NET_PER_SHARE=0.01`
-
 ## Scripts
 
 - `bun run bot` - run once in normal mode
@@ -73,7 +51,6 @@ Config flags:
 - Market logic: `src/services/marketDiscovery.ts`
 - Position logic: `src/services/positionManager.ts`
 - Trading + settlement: `src/services/tradingEngine.ts`, `src/services/settlement.ts`
-- EV filter: `src/services/evGuard.ts`
 
 ## Configuration
 

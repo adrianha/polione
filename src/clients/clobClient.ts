@@ -180,46 +180,4 @@ export class PolyClobClient {
   async getOpenOrders(): Promise<OpenOrdersResponse> {
     return this.client.getOpenOrders();
   }
-
-  async getMidpointPrice(tokenId: string): Promise<number | null> {
-    const result = await this.client.getMidpoint(tokenId);
-    if (typeof result === "number" && Number.isFinite(result)) {
-      return result;
-    }
-
-    if (typeof result === "string") {
-      const parsed = Number(result);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    if (result && typeof result === "object") {
-      const maybeObject = result as Record<string, unknown>;
-      const candidate = maybeObject.mid ?? maybeObject.midpoint ?? maybeObject.price;
-      const parsed = Number(candidate);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    return null;
-  }
-
-  async getBestPrice(tokenId: string, side: BotSide): Promise<number | null> {
-    const result = await this.client.getPrice(tokenId, side);
-    if (typeof result === "number" && Number.isFinite(result)) {
-      return result;
-    }
-
-    if (typeof result === "string") {
-      const parsed = Number(result);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    if (result && typeof result === "object") {
-      const maybeObject = result as Record<string, unknown>;
-      const candidate = maybeObject.price ?? maybeObject.mid ?? maybeObject.midpoint;
-      const parsed = Number(candidate);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    return null;
-  }
 }

@@ -93,22 +93,6 @@ export class PolymarketBot {
           continue;
         }
 
-        const ev = await this.tradingEngine.evaluateEntry(tokenIds);
-        this.logger.info({ ev }, "EV evaluation");
-        if (!ev.allowed) {
-          this.logger.warn(
-            {
-              netPerShare: ev.netPerShare,
-              minRequiredPerShare: ev.minRequiredPerShare,
-              grossEdgePerShare: ev.grossEdgePerShare,
-              totalCostsPerShare: ev.totalCostsPerShare
-            },
-            "EV guard blocked order placement"
-          );
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
-
         const conditionId = this.marketDiscovery.getConditionId(market);
         if (!conditionId) {
           this.logger.warn("Market missing condition ID; skipping settlement checks");
