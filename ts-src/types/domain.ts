@@ -23,6 +23,12 @@ export interface BotConfig {
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;
+  evGuardEnabled: boolean;
+  evMinNetPerShare: number;
+  evEstimatedFeeBps: number;
+  evEstimatedSlippagePerShare: number;
+  evEstimatedForceSellPenaltyPerShare: number;
+  evEstimatedPartialFillPenaltyPerShare: number;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 }
 
@@ -72,4 +78,16 @@ export interface PositionSummary {
 export interface TradeIntent {
   action: "PLACE_LIMIT" | "PLACE_MARKET" | "CANCEL_ORDER" | "MERGE" | "REDEEM";
   payload: Record<string, unknown>;
+}
+
+export interface EvEvaluation {
+  allowed: boolean;
+  priceUp: number;
+  priceDown: number;
+  priceSource: "live" | "config_fallback";
+  netPerShare: number;
+  netTotal: number;
+  grossEdgePerShare: number;
+  totalCostsPerShare: number;
+  minRequiredPerShare: number;
 }

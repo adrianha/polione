@@ -1,11 +1,39 @@
-import type { BotConfig, TokenIds } from "../types/domain.js";
+import type { BotConfig, EvEvaluation, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
+import { EvGuard } from "./evGuard.js";
 
 export class TradingEngine {
+  private readonly evGuard: EvGuard;
+
   constructor(
     private readonly config: BotConfig,
     private readonly clobClient: PolyClobClient
-  ) {}
+  ) {
+    this.evGuard = new EvGuard(config);
+  }
+
+  private sanitizePrice(value: number): number {
+    if (!Number.isFinite(value)) {
+      return this.config.orderPrice;
+    }
+    return Math.min(1, Math.max(0, value));
+  }
+
+  async evaluateEntry(tokenIds: TokenIds): Promise<EvEvaluation> {
+    const midpointUp = await this.clobClient.getMidpointPrice(tokenIds.upTokenId);
+    const midpointDown = await this.clobClient.getMidpointPrice(tokenIds.downTokenId);
+
+    const usingLive = midpointUp !== null && midpointDown !== null;
+    const priceUp = this.sanitizePrice(usingLive ? midpointUp : this.config.orderPrice);
+    const priceDown = this.sanitizePrice(usingLive ? midpointDown : this.config.orderPrice);
+
+    return this.evGuard.evaluatePairedBuy(
+      priceUp,
+      priceDown,
+      this.config.orderSize,
+      usingLive ? "live" : "config_fallback"
+    );
+  }
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
     const up = await this.clobClient.placeLimitOrder({

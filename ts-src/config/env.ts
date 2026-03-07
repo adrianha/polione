@@ -34,6 +34,12 @@ const schema = z.object({
   REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   REQUEST_RETRIES: z.coerce.number().int().min(0).default(3),
   REQUEST_RETRY_BACKOFF_MS: z.coerce.number().int().min(0).default(500),
+  EV_GUARD_ENABLED: z.coerce.boolean().default(true),
+  EV_MIN_NET_PER_SHARE: z.coerce.number().min(0).default(0.01),
+  EV_ESTIMATED_FEE_BPS: z.coerce.number().min(0).default(0),
+  EV_ESTIMATED_SLIPPAGE_PER_SHARE: z.coerce.number().min(0).default(0.002),
+  EV_ESTIMATED_FORCE_SELL_PENALTY_PER_SHARE: z.coerce.number().min(0).default(0.004),
+  EV_ESTIMATED_PARTIAL_FILL_PENALTY_PER_SHARE: z.coerce.number().min(0).default(0.002),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info")
 });
 
@@ -71,6 +77,12 @@ export const loadConfig = (): BotConfig => {
     requestTimeoutMs: parsed.REQUEST_TIMEOUT_MS,
     requestRetries: parsed.REQUEST_RETRIES,
     requestRetryBackoffMs: parsed.REQUEST_RETRY_BACKOFF_MS,
+    evGuardEnabled: parsed.EV_GUARD_ENABLED,
+    evMinNetPerShare: parsed.EV_MIN_NET_PER_SHARE,
+    evEstimatedFeeBps: parsed.EV_ESTIMATED_FEE_BPS,
+    evEstimatedSlippagePerShare: parsed.EV_ESTIMATED_SLIPPAGE_PER_SHARE,
+    evEstimatedForceSellPenaltyPerShare: parsed.EV_ESTIMATED_FORCE_SELL_PENALTY_PER_SHARE,
+    evEstimatedPartialFillPenaltyPerShare: parsed.EV_ESTIMATED_PARTIAL_FILL_PENALTY_PER_SHARE,
     logLevel: parsed.LOG_LEVEL
   };
 };

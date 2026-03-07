@@ -77,6 +77,22 @@ export class PolymarketBot {
           "Processing market"
         );
 
+        const ev = await this.tradingEngine.evaluateEntry(tokenIds);
+        this.logger.info({ ev }, "EV evaluation");
+        if (!ev.allowed) {
+          this.logger.warn(
+            {
+              netPerShare: ev.netPerShare,
+              minRequiredPerShare: ev.minRequiredPerShare,
+              grossEdgePerShare: ev.grossEdgePerShare,
+              totalCostsPerShare: ev.totalCostsPerShare
+            },
+            "EV guard blocked order placement"
+          );
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
         const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
         this.logger.info({ paired }, "Placed paired limit buy orders");
 

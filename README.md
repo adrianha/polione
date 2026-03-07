@@ -37,6 +37,28 @@ npm run bot
 
 If the flags are inconsistent, startup fails fast.
 
+## Profitability Guard (EV)
+
+The bot includes an EV guard that blocks new paired entries when expected value is too low.
+
+- Formula used per share:
+  - `net = 1 - (yesPrice + noPrice) - estimatedCosts`
+- Price source:
+  - Uses live CLOB midpoint prices for YES/NO tokens when available
+  - Falls back to `ORDER_PRICE` if live prices are unavailable
+- Estimated costs are configured by:
+  - `EV_ESTIMATED_FEE_BPS`
+  - `EV_ESTIMATED_SLIPPAGE_PER_SHARE`
+  - `EV_ESTIMATED_FORCE_SELL_PENALTY_PER_SHARE`
+  - `EV_ESTIMATED_PARTIAL_FILL_PENALTY_PER_SHARE`
+- Entry is allowed only if:
+  - `net >= EV_MIN_NET_PER_SHARE`
+
+Config flags:
+
+- `EV_GUARD_ENABLED=true`
+- `EV_MIN_NET_PER_SHARE=0.01`
+
 ## Scripts
 
 - `npm run bot` - run once in normal mode
@@ -56,6 +78,7 @@ If the flags are inconsistent, startup fails fast.
 - Market logic: `ts-src/services/marketDiscovery.ts`
 - Position logic: `ts-src/services/positionManager.ts`
 - Trading + settlement: `ts-src/services/tradingEngine.ts`, `ts-src/services/settlement.ts`
+- EV filter: `ts-src/services/evGuard.ts`
 
 ## Configuration
 
