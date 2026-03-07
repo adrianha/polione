@@ -92,72 +92,99 @@ export class PolymarketBot {
 
     while (!this.stopped) {
       try {
-        const market = await this.marketDiscovery.findNextActiveMarket();
-        if (!market) {
+        const currentMarket = await this.marketDiscovery.findCurrentActiveMarket();
+        const nextMarket = await this.marketDiscovery.findNextActiveMarket();
+
+        if (!currentMarket && !nextMarket) {
           this.logger.warn("No active market found, retrying");
           await sleep(this.config.loopSleepSeconds);
           continue;
         }
 
-        const tokenIds = this.marketDiscovery.getTokenIds(market);
-        if (!tokenIds) {
-          this.logger.warn({ slug: market.slug }, "Market found but no token IDs");
+        const currentConditionId = currentMarket
+          ? this.marketDiscovery.getConditionId(currentMarket)
+          : null;
+
+        if (currentMarket && currentConditionId && this.enteredMarkets.has(currentConditionId)) {
+          const currentTokenIds = this.marketDiscovery.getTokenIds(currentMarket);
+          if (!currentTokenIds) {
+            this.logger.warn(
+              { slug: currentMarket.slug, conditionId: currentConditionId },
+              "Current entered market missing token IDs"
+            );
+          } else {
+            const currentPositions = await this.dataClient.getPositions(positionsAddress, currentConditionId);
+            const currentSummary = summarizePositions(currentPositions, currentTokenIds);
+            const positionsEqual = arePositionsEqual(currentSummary, this.config.positionEqualityTolerance);
+            const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(currentMarket);
+
+            this.logger.info(
+              {
+                conditionId: currentConditionId,
+                slug: currentMarket.slug,
+                up: currentSummary.upSize,
+                down: currentSummary.downSize,
+                diff: currentSummary.differenceAbs,
+                equal: positionsEqual,
+                secondsToClose
+              },
+              "Position check"
+            );
+
+            if (positionsEqual && currentSummary.upSize > 0 && this.relayerClient.isAvailable()) {
+              const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
+              const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
+              this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
+            } else if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+              const forceSell = await this.tradingEngine.forceSellAll(currentSummary, currentTokenIds);
+              this.logger.info({ forceSell, conditionId: currentConditionId }, "Force sell flow executed");
+            }
+          }
+        }
+
+        let entryMarket = nextMarket;
+        if (entryMarket && currentConditionId) {
+          const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
+          if (entryConditionId === currentConditionId) {
+            entryMarket = null;
+          }
+        }
+
+        if (!entryMarket) {
+          this.logger.info("No distinct next market available for new entry");
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
+        const entryTokenIds = this.marketDiscovery.getTokenIds(entryMarket);
+        if (!entryTokenIds) {
+          this.logger.warn({ slug: entryMarket.slug }, "Entry market found but no token IDs");
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
+        const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
+        if (!entryConditionId) {
+          this.logger.warn({ slug: entryMarket.slug }, "Entry market missing condition ID");
           await sleep(this.config.loopSleepSeconds);
           continue;
         }
 
         this.logger.info(
           {
-            slug: market.slug,
-            upTokenId: tokenIds.upTokenId,
-            downTokenId: tokenIds.downTokenId
+            slug: entryMarket.slug,
+            conditionId: entryConditionId,
+            upTokenId: entryTokenIds.upTokenId,
+            downTokenId: entryTokenIds.downTokenId
           },
-          "Processing market"
+          "Evaluating entry market"
         );
 
-        const conditionId = this.marketDiscovery.getConditionId(market);
-        if (!conditionId) {
-          this.logger.warn("Market missing condition ID; skipping settlement checks");
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
-
-        const alreadyEnteredCurrentMarket = this.enteredMarkets.has(conditionId);
-        const preEntryPositions = await this.dataClient.getPositions(positionsAddress, conditionId);
-        const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
-        const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
-        const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);
-        const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
-
-        this.logger.info(
-          {
-            conditionId,
-            up: preEntrySummary.upSize,
-            down: preEntrySummary.downSize,
-            diff: preEntrySummary.differenceAbs,
-            equal: preEntryEqual,
-            secondsToClose
-          },
-          "Position check"
-        );
-
-        let settlementActionTaken = false;
-        if (preEntryEqual && preEntrySummary.upSize > 0 && this.relayerClient.isAvailable()) {
-          const amount = Math.min(preEntrySummary.upSize, preEntrySummary.downSize);
-          const merge = await this.settlementService.mergeEqualPositions(conditionId, amount);
-          settlementActionTaken = true;
-          this.logger.info({ merge }, "Merge flow executed");
-        } else if (!preEntryEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
-          const forceSell = await this.tradingEngine.forceSellAll(preEntrySummary, tokenIds);
-          settlementActionTaken = true;
-          this.logger.info({ forceSell }, "Force sell flow executed");
-        }
-
-        if (alreadyEnteredCurrentMarket) {
+        if (this.enteredMarkets.has(entryConditionId)) {
           this.logger.info(
             {
-              conditionId,
-              slug: market.slug
+              conditionId: entryConditionId,
+              slug: entryMarket.slug
             },
             "Skipped new entry: market already has one paired entry"
           );
@@ -165,30 +192,37 @@ export class PolymarketBot {
           continue;
         }
 
-        if (hasOpenExposure && !preEntryEqual) {
+        const entryPositions = await this.dataClient.getPositions(positionsAddress, entryConditionId);
+        const entrySummary = summarizePositions(entryPositions, entryTokenIds);
+        const entryHasOpenExposure = entrySummary.upSize > 0 || entrySummary.downSize > 0;
+        const entryEqual = arePositionsEqual(entrySummary, this.config.positionEqualityTolerance);
+        const entrySecondsToClose = this.marketDiscovery.getSecondsToMarketClose(entryMarket);
+
+        if (entryHasOpenExposure && !entryEqual) {
           this.logger.warn(
             {
-              conditionId,
-              up: preEntrySummary.upSize,
-              down: preEntrySummary.downSize,
-              diff: preEntrySummary.differenceAbs,
-              secondsToClose
+              conditionId: entryConditionId,
+              slug: entryMarket.slug,
+              up: entrySummary.upSize,
+              down: entrySummary.downSize,
+              diff: entrySummary.differenceAbs,
+              secondsToClose: entrySecondsToClose
             },
             "Skipped new entry: existing position imbalance detected"
           );
 
-          if (!settlementActionTaken && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
-            const forceSell = await this.tradingEngine.forceSellAll(preEntrySummary, tokenIds);
-            this.logger.info({ forceSell }, "Force sell flow executed from pre-entry imbalance check");
+          if (entrySecondsToClose !== null && entrySecondsToClose <= this.config.forceSellThresholdSeconds) {
+            const forceSell = await this.tradingEngine.forceSellAll(entrySummary, entryTokenIds);
+            this.logger.info({ forceSell, conditionId: entryConditionId }, "Force sell flow executed from entry guard");
           }
 
           await sleep(this.config.positionRecheckSeconds);
           continue;
         }
 
-        const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
-        await this.markEnteredMarket(conditionId);
-        this.logger.info({ paired }, "Placed paired limit buy orders");
+        const paired = await this.tradingEngine.placePairedLimitBuys(entryTokenIds);
+        await this.markEnteredMarket(entryConditionId);
+        this.logger.info({ paired, conditionId: entryConditionId }, "Placed paired limit buy orders");
 
         await sleep(this.config.positionRecheckSeconds);
       } catch (error) {
