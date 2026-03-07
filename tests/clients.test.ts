@@ -16,7 +16,6 @@ const config: BotConfig = {
   orderSize: 5,
   positionEqualityTolerance: 0.01,
   forceSellThresholdSeconds: 30,
-  minSecondsToCloseForEntry: 60,
   loopSleepSeconds: 10,
   positionRecheckSeconds: 60,
   requestTimeoutMs: 30_000,

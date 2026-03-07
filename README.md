@@ -61,7 +61,6 @@ Use `.env.example` for all supported variables. Key values:
 - `CLOB_API_HOST`, `GAMMA_API_BASE_URL`, `DATA_API_BASE_URL`
 - `ORDER_PRICE`, `ORDER_SIZE`
 - `FORCE_SELL_THRESHOLD_SECONDS`, `POSITION_EQUALITY_TOLERANCE`
-- `MIN_SECONDS_TO_CLOSE_FOR_ENTRY` (skip new entries near market end)
 - `STATE_FILE_PATH` (persist one-pair-per-market state across restarts)
 - Optional relayer: `POLYMARKET_RELAYER_URL`, `POLYGON_RPC`
 

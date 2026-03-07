@@ -113,23 +113,6 @@ export class PolymarketBot {
           "Processing market"
         );
 
-        const secondsToCloseForEntry = this.marketDiscovery.getSecondsToMarketClose(market);
-        if (
-          secondsToCloseForEntry !== null &&
-          secondsToCloseForEntry <= this.config.minSecondsToCloseForEntry
-        ) {
-          this.logger.warn(
-            {
-              secondsToClose: secondsToCloseForEntry,
-              minRequired: this.config.minSecondsToCloseForEntry,
-              slug: market.slug
-            },
-            "Skipped entry: market too close to end time"
-          );
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
-
         const conditionId = this.marketDiscovery.getConditionId(market);
         if (!conditionId) {
           this.logger.warn("Market missing condition ID; skipping settlement checks");
