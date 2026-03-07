@@ -138,6 +138,36 @@ export class PolymarketBot {
         }
 
         const alreadyEnteredCurrentMarket = this.enteredMarkets.has(conditionId);
+        const preEntryPositions = await this.dataClient.getPositions(userAddress, conditionId);
+        const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
+        const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
+        const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);
+        const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
+
+        this.logger.info(
+          {
+            conditionId,
+            up: preEntrySummary.upSize,
+            down: preEntrySummary.downSize,
+            diff: preEntrySummary.differenceAbs,
+            equal: preEntryEqual,
+            secondsToClose
+          },
+          "Position check"
+        );
+
+        let settlementActionTaken = false;
+        if (preEntryEqual && preEntrySummary.upSize > 0 && this.relayerClient.isAvailable()) {
+          const amount = Math.min(preEntrySummary.upSize, preEntrySummary.downSize);
+          const merge = await this.settlementService.mergeEqualPositions(conditionId, amount);
+          settlementActionTaken = true;
+          this.logger.info({ merge }, "Merge flow executed");
+        } else if (!preEntryEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+          const forceSell = await this.tradingEngine.forceSellAll(preEntrySummary, tokenIds);
+          settlementActionTaken = true;
+          this.logger.info({ forceSell }, "Force sell flow executed");
+        }
+
         if (alreadyEnteredCurrentMarket) {
           this.logger.info(
             {
@@ -150,13 +180,7 @@ export class PolymarketBot {
           continue;
         }
 
-        const preEntryPositions = await this.dataClient.getPositions(userAddress, conditionId);
-        const preEntrySummary = summarizePositions(preEntryPositions, tokenIds);
-        const hasOpenExposure = preEntrySummary.upSize > 0 || preEntrySummary.downSize > 0;
-        const preEntryEqual = arePositionsEqual(preEntrySummary, this.config.positionEqualityTolerance);
-
         if (hasOpenExposure && !preEntryEqual) {
-          const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
           this.logger.warn(
             {
               conditionId,
@@ -168,7 +192,7 @@ export class PolymarketBot {
             "Skipped new entry: existing position imbalance detected"
           );
 
-          if (secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+          if (!settlementActionTaken && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
             const forceSell = await this.tradingEngine.forceSellAll(preEntrySummary, tokenIds);
             this.logger.info({ forceSell }, "Force sell flow executed from pre-entry imbalance check");
           }
@@ -180,41 +204,6 @@ export class PolymarketBot {
         const paired = await this.tradingEngine.placePairedLimitBuys(tokenIds);
         await this.markEnteredMarket(conditionId);
         this.logger.info({ paired }, "Placed paired limit buy orders");
-
-        const positions = await this.dataClient.getPositions(userAddress, conditionId);
-        const summary = summarizePositions(positions, tokenIds);
-        const equal = arePositionsEqual(summary, this.config.positionEqualityTolerance);
-        const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(market);
-
-        this.logger.info(
-          {
-            conditionId,
-            up: summary.upSize,
-            down: summary.downSize,
-            diff: summary.differenceAbs,
-            equal,
-            secondsToClose
-          },
-          "Position check"
-        );
-
-        if (equal && summary.upSize > 0 && this.relayerClient.isAvailable()) {
-          const amount = Math.min(summary.upSize, summary.downSize);
-          const merge = await this.settlementService.mergeEqualPositions(conditionId, amount);
-          this.logger.info({ merge }, "Merge flow executed");
-        } else if (!equal && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
-          const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
-          this.logger.info({ forceSell }, "Force sell flow executed");
-        } else {
-          this.logger.info(
-            {
-              conditionId,
-              secondsToClose,
-              forceSellThreshold: this.config.forceSellThresholdSeconds
-            },
-            "No settlement action taken"
-          );
-        }
 
         await sleep(this.config.positionRecheckSeconds);
       } catch (error) {
