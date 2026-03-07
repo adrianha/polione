@@ -17,6 +17,7 @@
   "keywords": [],
   "author": "Adrian Hartanto",
   "license": "ISC",
+  "packageManager": "bun@1.3.3",
   "type": "module",
   "bugs": {
     "url": "https://github.com/Poly-Dev05/polymarket-trading-bot/issues"

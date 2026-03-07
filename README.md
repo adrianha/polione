@@ -12,7 +12,7 @@ TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mod
 1. Install dependencies:
 
 ```bash
-npm install
+bun install
 ```
 
 2. Configure environment:
@@ -24,7 +24,7 @@ cp .env.example .env
 3. Start bot in safe mode (default):
 
 ```bash
-npm run bot
+bun run bot
 ```
 
 ## Safety Model
@@ -60,11 +60,11 @@ Config flags:
 
 ## Scripts
 
-- `npm run bot` - run once in normal mode
-- `npm run dev` - run with watch mode
-- `npm run typecheck` - TypeScript type checks
-- `npm run test` - run test suite
-- `npm run build` - compile to `dist-ts/`
+- `bun run bot` - run once in normal mode
+- `bun run dev` - run with watch mode
+- `bun run typecheck` - TypeScript type checks
+- `bun run test` - run test suite
+- `bun run build` - compile to `dist-ts/`
 
 ## Core TypeScript Modules
 
