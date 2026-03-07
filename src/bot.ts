@@ -198,7 +198,7 @@ export class PolymarketBot {
         const entryEqual = arePositionsEqual(entrySummary, this.config.positionEqualityTolerance);
         const entrySecondsToClose = this.marketDiscovery.getSecondsToMarketClose(entryMarket);
 
-        if (entryHasOpenExposure && !entryEqual) {
+        if (entryHasOpenExposure) {
           this.logger.warn(
             {
               conditionId: entryConditionId,
@@ -206,12 +206,13 @@ export class PolymarketBot {
               up: entrySummary.upSize,
               down: entrySummary.downSize,
               diff: entrySummary.differenceAbs,
+              equal: entryEqual,
               secondsToClose: entrySecondsToClose
             },
-            "Skipped new entry: existing position imbalance detected"
+            "Skipped new entry: existing position exposure detected"
           );
 
-          if (entrySecondsToClose !== null && entrySecondsToClose <= this.config.forceSellThresholdSeconds) {
+          if (!entryEqual && entrySecondsToClose !== null && entrySecondsToClose <= this.config.forceSellThresholdSeconds) {
             const forceSell = await this.tradingEngine.forceSellAll(entrySummary, entryTokenIds);
             this.logger.info({ forceSell, conditionId: entryConditionId }, "Force sell flow executed from entry guard");
           }
