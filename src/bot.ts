@@ -61,7 +61,7 @@ export class PolymarketBot {
 
   async runForever(): Promise<void> {
     await this.clobClient.init();
-    const userAddress = await this.clobClient.getSignerAddress();
+    const userAddress = this.clobClient.getSignerAddress();
     const positionsAddress = this.config.funder ?? userAddress;
 
     try {

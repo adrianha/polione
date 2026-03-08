@@ -10,31 +10,23 @@ import {
   type OpenOrdersResponse,
   type TickSize
 } from "@polymarket/clob-client";
-import { createWalletClient, http, type WalletClient } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { polygon, polygonAmoy } from "viem/chains";
 import type { BotConfig, Side as BotSide, TradeIntent } from "../types/domain.js";
+import { Wallet } from "ethers";
 
 const toSdkSide = (side: BotSide): Side => (side === "BUY" ? Side.BUY : Side.SELL);
 
 const toSdkChain = (chainId: 137 | 80002): Chain => (chainId === 137 ? Chain.POLYGON : Chain.AMOY);
 
 export class PolyClobClient {
-  private readonly walletClient: WalletClient;
+  private readonly wallet: Wallet;
   private client: ClobClient;
 
   constructor(private readonly config: BotConfig) {
-    const account = privateKeyToAccount(config.privateKey);
-    this.walletClient = createWalletClient({
-      account,
-      chain: config.chainId === 137 ? polygon : polygonAmoy,
-      transport: http(config.polygonRpc)
-    });
-
+    this.wallet = new Wallet(config.privateKey);
     this.client = new ClobClient(
       config.clobApiHost,
       toSdkChain(config.chainId),
-      this.walletClient,
+      this.wallet,
       undefined,
       config.signatureType as SignatureType,
       config.funder,
@@ -48,7 +40,7 @@ export class PolyClobClient {
     this.client = new ClobClient(
       this.config.clobApiHost,
       toSdkChain(this.config.chainId),
-      this.walletClient,
+      this.wallet,
       creds,
       this.config.signatureType as SignatureType,
       this.config.funder,
@@ -57,9 +49,8 @@ export class PolyClobClient {
     );
   }
 
-  async getSignerAddress(): Promise<string> {
-    const [address] = await this.walletClient.getAddresses();
-    return address;
+  getSignerAddress(): string {
+    return this.wallet.address;
   }
 
   async placeLimitOrder(params: {
