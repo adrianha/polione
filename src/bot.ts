@@ -201,39 +201,6 @@ export class PolymarketBot {
           continue;
         }
 
-        const entryPositions = await this.dataClient.getPositions(positionsAddress, entryConditionId);
-        const entrySummary = summarizePositions(entryPositions, entryTokenIds);
-        const entryHasOpenExposure = entrySummary.upSize > 0 || entrySummary.downSize > 0;
-        const entryEqual = arePositionsEqual(entrySummary, this.config.positionEqualityTolerance);
-        const entrySecondsToClose = this.marketDiscovery.getSecondsToMarketClose(entryMarket);
-
-        if (entryHasOpenExposure) {
-          this.logger.warn(
-            {
-              conditionId: entryConditionId,
-              slug: entryMarket.slug,
-              up: entrySummary.upSize,
-              down: entrySummary.downSize,
-              diff: entrySummary.differenceAbs,
-              equal: entryEqual,
-              secondsToClose: entrySecondsToClose,
-            },
-            "Skipped new entry: existing position exposure detected",
-          );
-
-          if (
-            !entryEqual &&
-            entrySecondsToClose !== null &&
-            entrySecondsToClose <= this.config.forceSellThresholdSeconds
-          ) {
-            const forceSell = await this.tradingEngine.forceSellAll(entrySummary, entryTokenIds);
-            this.logger.info({ forceSell, conditionId: entryConditionId }, "Force sell flow executed from entry guard");
-          }
-
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
-
         const requiredUsdcForBothLegs = this.config.orderPrice * this.config.orderSize * 2;
         const currentUsdcBalance = await this.clobClient.getUsdcBalance();
         if (currentUsdcBalance < requiredUsdcForBothLegs) {
