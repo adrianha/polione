@@ -75,6 +75,10 @@ Common defaults:
 - `DRY_RUN=true`
 - `CHAIN_ID=137`
 - `CLOB_API_HOST=https://clob.polymarket.com`
+- `CLOB_WS_URL=wss://ws-subscriptions-clob.polymarket.com/ws/market`
+- `ENABLE_CLOB_WS=true`
+- `WS_QUOTES_MAX_AGE_MS=2000`
+- `WS_RECONNECT_DELAY_MS=2000`
 - `GAMMA_API_BASE_URL=https://gamma-api.polymarket.com`
 - `DATA_API_BASE_URL=https://data-api.polymarket.com`
 - `MARKET_SLUG_PREFIX=btc-updown-5m`

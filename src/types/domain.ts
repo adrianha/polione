@@ -7,6 +7,10 @@ export interface BotConfig {
   signatureType: 0 | 1 | 2;
   chainId: 137 | 80002;
   clobApiHost: string;
+  clobWsUrl: string;
+  enableClobWs: boolean;
+  wsQuotesMaxAgeMs: number;
+  wsReconnectDelayMs: number;
   gammaApiBaseUrl: string;
   dataApiBaseUrl: string;
   polygonRpc?: string;

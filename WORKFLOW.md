@@ -75,6 +75,8 @@ MAIN LOOP (until stop signal)
   - current active market for current epoch
   - next active market (next epoch first, then current fallback)
 - If both are missing, the bot logs and sleeps `LOOP_SLEEP_SECONDS`.
+- `src/clients/clobWsClient.ts` maintains best bid/ask quote cache from CLOB market websocket.
+- Trading reads websocket quotes when fresh (`WS_QUOTES_MAX_AGE_MS`) and falls back to REST order books when stale/unavailable.
 
 ### 3) Current entered market management
 

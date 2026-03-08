@@ -1,6 +1,7 @@
 import type { DataClient } from "../clients/dataClient.js";
 import type { BotConfig, EntryReconcileResult, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
+import type { ClobWsClient } from "../clients/clobWsClient.js";
 import type { OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
@@ -10,6 +11,7 @@ export class TradingEngine {
     private readonly config: BotConfig,
     private readonly clobClient: PolyClobClient,
     private readonly dataClient: DataClient,
+    private readonly clobWsClient?: ClobWsClient,
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
@@ -104,6 +106,26 @@ export class TradingEngine {
     upDepth?: number;
     downDepth?: number;
   }> {
+    this.clobWsClient?.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
+
+    const upWs = this.clobWsClient?.getFreshQuote(tokenIds.upTokenId) ?? null;
+    const downWs = this.clobWsClient?.getFreshQuote(tokenIds.downTokenId) ?? null;
+
+    if (upWs && downWs) {
+      const upSpread = upWs.bestAsk - upWs.bestBid;
+      const downSpread = downWs.bestAsk - downWs.bestBid;
+
+      if (upSpread > this.config.entryMaxSpread || downSpread > this.config.entryMaxSpread) {
+        return {
+          allowed: false,
+          orderSize: 0,
+          reason: "Spread too wide",
+          upSpread,
+          downSpread,
+        };
+      }
+    }
+
     const [upBook, downBook] = await Promise.all([
       this.clobClient.getOrderBook(tokenIds.upTokenId),
       this.clobClient.getOrderBook(tokenIds.downTokenId),
@@ -157,6 +179,12 @@ export class TradingEngine {
   }
 
   async getBestAskPrice(tokenId: string): Promise<number> {
+    this.clobWsClient?.ensureSubscribed([tokenId]);
+    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
+    if (wsQuote && wsQuote.bestAsk > 0) {
+      return wsQuote.bestAsk;
+    }
+
     const book = await this.clobClient.getOrderBook(tokenId);
     return this.getBestAsk(book);
   }
