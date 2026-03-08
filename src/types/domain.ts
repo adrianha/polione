@@ -27,6 +27,9 @@ export interface BotConfig {
   entryReconcileSeconds: number;
   entryReconcilePollSeconds: number;
   entryCancelOpenOrders: boolean;
+  entryMaxRepriceAttempts: number;
+  entryRepriceStep: number;
+  entryMaxPrice: number;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;
@@ -34,7 +37,7 @@ export interface BotConfig {
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 }
 
-export type EntryReconcileStatus = "balanced" | "flattened" | "failed";
+export type EntryReconcileStatus = "balanced" | "imbalanced" | "flattened" | "failed";
 
 export interface EntryReconcileResult {
   status: EntryReconcileStatus;

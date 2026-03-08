@@ -189,7 +189,8 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    const requiredUsdcForBothLegs = this.config.orderPrice * this.config.orderSize * 2;
+    const maxEntryPrice = this.tradingEngine.getEntryPriceForAttempt(this.config.entryMaxRepriceAttempts);
+    const requiredUsdcForBothLegs = maxEntryPrice * this.config.orderSize * 2;
     const currentUsdcBalance = await this.clobClient.getUsdcBalance();
     if (currentUsdcBalance < requiredUsdcForBothLegs) {
       this.logger.warn(
@@ -204,56 +205,96 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    const paired = await this.tradingEngine.placePairedLimitBuys(entryTokenIds);
-    this.logger.info({ paired, conditionId: entryConditionId }, "Placed paired limit buy orders");
-
-    const reconcile = await this.tradingEngine.reconcilePairedEntry({
-      positionsAddress,
-      conditionId: entryConditionId,
-      tokenIds: entryTokenIds,
-    });
-
-    if (reconcile.status === "balanced") {
-      await this.markEnteredMarket(entryConditionId);
+    for (let attempt = 0; attempt <= this.config.entryMaxRepriceAttempts; attempt += 1) {
+      const entryPrice = this.tradingEngine.getEntryPriceForAttempt(attempt);
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice);
       this.logger.info(
         {
+          paired,
           conditionId: entryConditionId,
-          status: reconcile.status,
-          attempts: reconcile.attempts,
-          summary: reconcile.finalSummary,
+          entryPrice,
+          attempt,
+          maxAttempts: this.config.entryMaxRepriceAttempts,
         },
-        "Entry reconciliation succeeded",
+        "Placed paired limit buy orders",
       );
-      return this.config.positionRecheckSeconds;
-    }
 
-    if (reconcile.status === "flattened") {
-      this.logger.warn(
+      const isFinalAttempt = attempt >= this.config.entryMaxRepriceAttempts;
+      const reconcile = await this.tradingEngine.reconcilePairedEntry({
+        positionsAddress,
+        conditionId: entryConditionId,
+        tokenIds: entryTokenIds,
+        flattenOnImbalance: isFinalAttempt,
+        cancelOpenOrders: true,
+      });
+
+      if (reconcile.status === "balanced") {
+        await this.markEnteredMarket(entryConditionId);
+        this.logger.info(
+          {
+            conditionId: entryConditionId,
+            status: reconcile.status,
+            attempts: reconcile.attempts,
+            summary: reconcile.finalSummary,
+            entryAttempt: attempt,
+            entryPrice,
+          },
+          "Entry reconciliation succeeded",
+        );
+        return this.config.positionRecheckSeconds;
+      }
+
+      if (reconcile.status === "imbalanced" && !isFinalAttempt) {
+        this.logger.warn(
+          {
+            conditionId: entryConditionId,
+            status: reconcile.status,
+            attempts: reconcile.attempts,
+            summary: reconcile.finalSummary,
+            cancelledOpenOrders: reconcile.cancelledOpenOrders,
+            reason: reconcile.reason,
+            entryAttempt: attempt,
+            nextPrice: this.tradingEngine.getEntryPriceForAttempt(attempt + 1),
+          },
+          "Entry remains imbalanced; repricing paired entry",
+        );
+        continue;
+      }
+
+      if (reconcile.status === "flattened") {
+        this.logger.warn(
+          {
+            conditionId: entryConditionId,
+            status: reconcile.status,
+            attempts: reconcile.attempts,
+            summary: reconcile.finalSummary,
+            cancelledOpenOrders: reconcile.cancelledOpenOrders,
+            flattenResult: reconcile.flattenResult,
+            reason: reconcile.reason,
+            entryAttempt: attempt,
+            entryPrice,
+          },
+          "Entry reconciliation flattened imbalanced exposure",
+        );
+        return this.config.loopSleepSeconds;
+      }
+
+      this.logger.error(
         {
           conditionId: entryConditionId,
           status: reconcile.status,
           attempts: reconcile.attempts,
           summary: reconcile.finalSummary,
           cancelledOpenOrders: reconcile.cancelledOpenOrders,
-          flattenResult: reconcile.flattenResult,
           reason: reconcile.reason,
+          entryAttempt: attempt,
+          entryPrice,
         },
-        "Entry reconciliation flattened imbalanced exposure",
+        "Entry reconciliation failed",
       );
+
       return this.config.loopSleepSeconds;
     }
-
-    this.logger.error(
-      {
-        conditionId: entryConditionId,
-        status: reconcile.status,
-        attempts: reconcile.attempts,
-        summary: reconcile.finalSummary,
-        cancelledOpenOrders: reconcile.cancelledOpenOrders,
-        reason: reconcile.reason,
-      },
-      "Entry reconciliation failed",
-    );
 
     return this.config.loopSleepSeconds;
   }

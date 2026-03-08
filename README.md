@@ -88,6 +88,9 @@ Common defaults:
 - `ENTRY_RECONCILE_SECONDS=15`
 - `ENTRY_RECONCILE_POLL_SECONDS=3`
 - `ENTRY_CANCEL_OPEN_ORDERS=true`
+- `ENTRY_MAX_REPRICE_ATTEMPTS=2`
+- `ENTRY_REPRICE_STEP=0.01`
+- `ENTRY_MAX_PRICE=0.50`
 - `REQUEST_TIMEOUT_MS=30000`
 - `REQUEST_RETRIES=3`
 - `REQUEST_RETRY_BACKOFF_MS=500`
@@ -109,6 +112,7 @@ Optional relayer builder auth:
 - Entered market condition IDs are persisted to `STATE_FILE_PATH`.
 - Persisted state prevents multiple paired entries into the same condition across restarts.
 - After paired order placement, the bot runs an entry reconciliation window.
+- If entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
 - If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
 
 ## Workflow

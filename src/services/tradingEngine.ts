@@ -12,17 +12,21 @@ export class TradingEngine {
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
+    return this.placePairedLimitBuysAtPrice(tokenIds, this.config.orderPrice);
+  }
+
+  async placePairedLimitBuysAtPrice(tokenIds: TokenIds, price: number): Promise<{ up: unknown; down: unknown }> {
     const batchResult = await this.clobClient.placeLimitOrdersBatch([
       {
         tokenId: tokenIds.upTokenId,
         side: "BUY",
-        price: this.config.orderPrice,
+        price,
         size: this.config.orderSize,
       },
       {
         tokenId: tokenIds.downTokenId,
         side: "BUY",
-        price: this.config.orderPrice,
+        price,
         size: this.config.orderSize,
       },
     ]);
@@ -44,6 +48,11 @@ export class TradingEngine {
       up: posted[0] ?? batchResult,
       down: posted[1] ?? batchResult,
     };
+  }
+
+  getEntryPriceForAttempt(attempt: number): number {
+    const stepped = this.config.orderPrice + this.config.entryRepriceStep * Math.max(0, attempt);
+    return Math.min(this.config.entryMaxPrice, Number(stepped.toFixed(4)));
   }
 
   async forceSellAll(
@@ -77,7 +86,11 @@ export class TradingEngine {
     positionsAddress: string;
     conditionId: string;
     tokenIds: TokenIds;
+    flattenOnImbalance?: boolean;
+    cancelOpenOrders?: boolean;
   }): Promise<EntryReconcileResult> {
+    const flattenOnImbalance = params.flattenOnImbalance ?? true;
+    const cancelOpenOrders = params.cancelOpenOrders ?? this.config.entryCancelOpenOrders;
     const attempts = Math.max(
       1,
       Math.ceil(this.config.entryReconcileSeconds / Math.max(1, this.config.entryReconcilePollSeconds)),
@@ -110,7 +123,7 @@ export class TradingEngine {
     const reasons: string[] = [];
     let cancelledOpenOrders: unknown[] | undefined;
 
-    if (this.config.entryCancelOpenOrders) {
+    if (cancelOpenOrders) {
       try {
         cancelledOpenOrders = await this.clobClient.cancelOpenOrdersForTokenIds([
           params.tokenIds.upTokenId,
@@ -125,6 +138,17 @@ export class TradingEngine {
       reasons.push("No fills detected during entry reconciliation window");
       return {
         status: "failed",
+        attempts,
+        finalSummary,
+        cancelledOpenOrders,
+        reason: reasons.join("; "),
+      };
+    }
+
+    if (!flattenOnImbalance) {
+      reasons.push("Imbalanced exposure remains after entry reconciliation window");
+      return {
+        status: "imbalanced",
         attempts,
         finalSummary,
         cancelledOpenOrders,

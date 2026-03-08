@@ -21,6 +21,9 @@ const baseConfig: BotConfig = {
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,
   entryCancelOpenOrders: true,
+  entryMaxRepriceAttempts: 2,
+  entryRepriceStep: 0.01,
+  entryMaxPrice: 0.5,
   requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
@@ -118,5 +121,50 @@ describe("trading engine entry reconciliation", () => {
     expect(result.status).toBe("failed");
     expect(result.reason).toContain("No fills detected");
     expect(sold).toEqual([]);
+  });
+
+  it("returns imbalanced when flatten is disabled", async () => {
+    const sold: Array<{ tokenId: string; amount: number }> = [];
+    const clobClient = {
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [{ cancelled: 1 }],
+      placeMarketOrder: async (params: { tokenId: string; amount: number }) => {
+        sold.push({ tokenId: params.tokenId, amount: params.amount });
+        return { dryRun: true };
+      },
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => {
+        return [{ asset: "up-token", conditionId: "cond", size: 5 }];
+      },
+    };
+
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+    const result = await engine.reconcilePairedEntry({
+      positionsAddress: "0xabc",
+      conditionId: "cond",
+      tokenIds,
+      flattenOnImbalance: false,
+    });
+
+    expect(result.status).toBe("imbalanced");
+    expect(sold).toEqual([]);
+  });
+
+  it("computes repriced entry levels with max cap", () => {
+    const clobClient = {
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+    expect(engine.getEntryPriceForAttempt(0)).toBe(0.46);
+    expect(engine.getEntryPriceForAttempt(1)).toBe(0.47);
+    expect(engine.getEntryPriceForAttempt(9)).toBe(0.5);
   });
 });
