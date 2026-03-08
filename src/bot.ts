@@ -15,6 +15,7 @@ export class PolymarketBot {
   private stopped = false;
   private readonly enteredMarkets = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
+  private readonly inFlightConditions = new Set<string>();
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
@@ -26,6 +27,7 @@ export class PolymarketBot {
   private readonly stateStore: StateStore;
   private latestCurrentMarket: MarketRecord | null = null;
   private latestNextMarket: MarketRecord | null = null;
+  private snapshotUpdatedAtMs: number | null = null;
 
   constructor(
     private readonly config: BotConfig,
@@ -59,6 +61,37 @@ export class PolymarketBot {
 
   stop(): void {
     this.stopped = true;
+  }
+
+  private getSnapshotAgeMs(): number | null {
+    if (this.snapshotUpdatedAtMs === null) {
+      return null;
+    }
+    return Date.now() - this.snapshotUpdatedAtMs;
+  }
+
+  private isSnapshotStale(): boolean {
+    const ageMs = this.getSnapshotAgeMs();
+    if (ageMs === null) {
+      return true;
+    }
+
+    const maxAgeMs = Math.max(this.config.loopSleepSeconds, 1) * 2000;
+    return ageMs > maxAgeMs;
+  }
+
+  private async withConditionLock<T>(conditionId: string, run: () => Promise<T>): Promise<{ executed: boolean; result?: T }> {
+    if (this.inFlightConditions.has(conditionId)) {
+      return { executed: false };
+    }
+
+    this.inFlightConditions.add(conditionId);
+    try {
+      const result = await run();
+      return { executed: true, result };
+    } finally {
+      this.inFlightConditions.delete(conditionId);
+    }
   }
 
   private async loadPersistedEnteredMarkets(): Promise<void> {
@@ -369,6 +402,7 @@ export class PolymarketBot {
 
     this.latestCurrentMarket = currentMarket;
     this.latestNextMarket = nextMarket;
+    this.snapshotUpdatedAtMs = Date.now();
 
     if (!currentMarket && !nextMarket) {
       this.logger.warn("No active market found, retrying");
@@ -390,6 +424,12 @@ export class PolymarketBot {
   private async currentMarketLoop(positionsAddress: string): Promise<void> {
     while (!this.stopped) {
       try {
+        if (this.isSnapshotStale()) {
+          this.logger.warn({ snapshotAgeMs: this.getSnapshotAgeMs() }, "Current market loop skipped: stale market snapshot");
+          await sleep(this.config.currentLoopSleepSeconds);
+          continue;
+        }
+
         const currentMarket = this.latestCurrentMarket;
         if (!currentMarket) {
           await sleep(this.config.currentLoopSleepSeconds);
@@ -398,11 +438,20 @@ export class PolymarketBot {
 
         const currentConditionId = this.marketDiscovery.getConditionId(currentMarket);
         if (currentConditionId && this.enteredMarkets.has(currentConditionId)) {
-          await this.processCurrentEnteredMarket({
-            currentMarket,
-            currentConditionId,
-            positionsAddress,
+          const locked = await this.withConditionLock(currentConditionId, async () => {
+            await this.processCurrentEnteredMarket({
+              currentMarket,
+              currentConditionId,
+              positionsAddress,
+            });
           });
+
+          if (!locked.executed) {
+            this.logger.debug(
+              { conditionId: currentConditionId },
+              "Current market loop skipped: condition already in flight",
+            );
+          }
         }
       } catch (error) {
         this.logger.error({ error }, "Current market loop error");
@@ -417,6 +466,12 @@ export class PolymarketBot {
       let sleepSeconds = this.config.loopSleepSeconds;
 
       try {
+        if (this.isSnapshotStale()) {
+          this.logger.warn({ snapshotAgeMs: this.getSnapshotAgeMs() }, "Entry loop skipped: stale market snapshot");
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
         const currentMarket = this.latestCurrentMarket;
         const nextMarket = this.latestNextMarket;
 
@@ -438,11 +493,32 @@ export class PolymarketBot {
           continue;
         }
 
-        sleepSeconds = await this.processEntryMarket({
-          entryMarket,
-          currentConditionId,
-          positionsAddress,
-        });
+        const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
+        if (!entryConditionId) {
+          sleepSeconds = await this.processEntryMarket({
+            entryMarket,
+            currentConditionId,
+            positionsAddress,
+          });
+        } else {
+          const locked = await this.withConditionLock(entryConditionId, async () => {
+            return this.processEntryMarket({
+              entryMarket,
+              currentConditionId,
+              positionsAddress,
+            });
+          });
+
+          if (!locked.executed) {
+            this.logger.debug(
+              { conditionId: entryConditionId },
+              "Entry loop skipped: condition already in flight",
+            );
+            sleepSeconds = this.config.loopSleepSeconds;
+          } else {
+            sleepSeconds = locked.result ?? this.config.loopSleepSeconds;
+          }
+        }
       } catch (error) {
         this.logger.error({ error }, "Entry loop error");
       }
