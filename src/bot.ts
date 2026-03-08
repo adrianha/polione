@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { BotConfig } from "./types/domain.js";
+import type { BotConfig, MarketRecord } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
 import { PolyRelayerClient } from "./clients/relayerClient.js";
@@ -24,6 +24,8 @@ export class PolymarketBot {
   private readonly tradingEngine: TradingEngine;
   private readonly settlementService: SettlementService;
   private readonly stateStore: StateStore;
+  private latestCurrentMarket: MarketRecord | null = null;
+  private latestNextMarket: MarketRecord | null = null;
 
   constructor(
     private readonly config: BotConfig,
@@ -77,7 +79,7 @@ export class PolymarketBot {
   }
 
   private async processCurrentEnteredMarket(params: {
-    currentMarket: { slug?: string; endDate?: string; end_date_iso?: string };
+    currentMarket: MarketRecord;
     currentConditionId: string;
     positionsAddress: string;
   }): Promise<void> {
@@ -134,10 +136,10 @@ export class PolymarketBot {
   }
 
   private selectEntryMarket(params: {
-    currentMarket: { slug?: string; conditionId?: string; condition_id?: string } | null;
-    nextMarket: { slug?: string; conditionId?: string; condition_id?: string } | null;
+    currentMarket: MarketRecord | null;
+    nextMarket: MarketRecord | null;
     currentConditionId: string | null;
-  }): { slug?: string; conditionId?: string; condition_id?: string } | null {
+  }): MarketRecord | null {
     const { currentMarket, nextMarket, currentConditionId } = params;
 
     if (nextMarket) {
@@ -151,7 +153,7 @@ export class PolymarketBot {
   }
 
   private async processEntryMarket(params: {
-    entryMarket: { slug?: string; conditionId?: string; condition_id?: string; clobTokenIds?: unknown; tokens?: unknown };
+    entryMarket: MarketRecord;
     currentConditionId: string | null;
     positionsAddress: string;
   }): Promise<number> {
@@ -362,41 +364,94 @@ export class PolymarketBot {
     return this.config.loopSleepSeconds;
   }
 
-  private async runCycle(positionsAddress: string): Promise<number> {
-    const currentMarket = await this.marketDiscovery.findCurrentActiveMarket();
-    const nextMarket = await this.marketDiscovery.findNextActiveMarket();
+  private async updateMarketSnapshot(): Promise<void> {
+    const [currentMarket, nextMarket] = await Promise.all([
+      this.marketDiscovery.findCurrentActiveMarket(),
+      this.marketDiscovery.findNextActiveMarket(),
+    ]);
+
+    this.latestCurrentMarket = currentMarket;
+    this.latestNextMarket = nextMarket;
 
     if (!currentMarket && !nextMarket) {
       this.logger.warn("No active market found, retrying");
-      return this.config.loopSleepSeconds;
     }
+  }
 
-    const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+  private async discoveryLoop(): Promise<void> {
+    while (!this.stopped) {
+      try {
+        await this.updateMarketSnapshot();
+      } catch (error) {
+        this.logger.error({ error }, "Discovery loop error");
+      }
 
-    if (currentMarket && currentConditionId && this.enteredMarkets.has(currentConditionId)) {
-      await this.processCurrentEnteredMarket({
-        currentMarket,
-        currentConditionId,
-        positionsAddress,
-      });
+      await sleep(this.config.loopSleepSeconds);
     }
+  }
 
-    const entryMarket = this.selectEntryMarket({
-      currentMarket,
-      nextMarket,
-      currentConditionId,
-    });
+  private async currentMarketLoop(positionsAddress: string): Promise<void> {
+    while (!this.stopped) {
+      try {
+        const currentMarket = this.latestCurrentMarket;
+        if (!currentMarket) {
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
 
-    if (!entryMarket) {
-      this.logger.info("No market available for new entry");
-      return this.config.loopSleepSeconds;
+        const currentConditionId = this.marketDiscovery.getConditionId(currentMarket);
+        if (currentConditionId && this.enteredMarkets.has(currentConditionId)) {
+          await this.processCurrentEnteredMarket({
+            currentMarket,
+            currentConditionId,
+            positionsAddress,
+          });
+        }
+      } catch (error) {
+        this.logger.error({ error }, "Current market loop error");
+      }
+
+      await sleep(this.config.loopSleepSeconds);
     }
+  }
 
-    return this.processEntryMarket({
-      entryMarket,
-      currentConditionId,
-      positionsAddress,
-    });
+  private async entryLoop(positionsAddress: string): Promise<void> {
+    while (!this.stopped) {
+      let sleepSeconds = this.config.loopSleepSeconds;
+
+      try {
+        const currentMarket = this.latestCurrentMarket;
+        const nextMarket = this.latestNextMarket;
+
+        if (!currentMarket && !nextMarket) {
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
+        const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+        const entryMarket = this.selectEntryMarket({
+          currentMarket,
+          nextMarket,
+          currentConditionId,
+        });
+
+        if (!entryMarket) {
+          this.logger.info("No market available for new entry");
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
+        sleepSeconds = await this.processEntryMarket({
+          entryMarket,
+          currentConditionId,
+          positionsAddress,
+        });
+      } catch (error) {
+        this.logger.error({ error }, "Entry loop error");
+      }
+
+      await sleep(sleepSeconds);
+    }
   }
 
   async runForever(): Promise<void> {
@@ -418,15 +473,12 @@ export class PolymarketBot {
       "Bot initialized",
     );
 
-    while (!this.stopped) {
-      try {
-        const sleepSeconds = await this.runCycle(positionsAddress);
-        await sleep(sleepSeconds);
-      } catch (error) {
-        this.logger.error({ error }, "Main loop error");
-        await sleep(this.config.loopSleepSeconds);
-      }
-    }
+    await this.updateMarketSnapshot();
+    await Promise.all([
+      this.discoveryLoop(),
+      this.currentMarketLoop(positionsAddress),
+      this.entryLoop(positionsAddress),
+    ]);
 
     this.logger.info("Bot stopped");
   }
