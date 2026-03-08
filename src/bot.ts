@@ -98,6 +98,26 @@ export class PolymarketBot {
     }
   }
 
+  private evaluateForceWindowHedge(entryPrice: number, bestMissingAsk: number): {
+    isProfitable: boolean;
+    maxHedgePrice: number;
+    expectedLockPnlPerShare: number;
+  } {
+    const maxHedgePrice =
+      1 -
+      entryPrice -
+      this.config.forceWindowFeeBuffer -
+      this.config.forceWindowMinProfitPerShare;
+
+    const expectedLockPnlPerShare = 1 - entryPrice - bestMissingAsk - this.config.forceWindowFeeBuffer;
+
+    return {
+      isProfitable: expectedLockPnlPerShare >= this.config.forceWindowMinProfitPerShare,
+      maxHedgePrice,
+      expectedLockPnlPerShare,
+    };
+  }
+
   private async loadPersistedEnteredMarkets(): Promise<void> {
     try {
       const loaded = await this.stateStore.loadEnteredMarkets();
@@ -336,26 +356,22 @@ export class PolymarketBot {
         const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
 
         if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
-          const filledLegAvgPrice = entryPrice;
-          const maxHedgePrice =
-            1 -
-            filledLegAvgPrice -
-            this.config.forceWindowFeeBuffer -
-            this.config.forceWindowMinProfitPerShare;
+          const hedgeCheck = this.evaluateForceWindowHedge(entryPrice, bestMissingAsk);
 
-          if (bestMissingAsk <= maxHedgePrice) {
+          if (hedgeCheck.isProfitable) {
             const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
             const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(
               reconcile.finalSummary,
               entryTokenIds,
-              maxHedgePrice,
+              hedgeCheck.maxHedgePrice,
             );
 
             this.logger.warn(
               {
                 conditionId: entryConditionId,
                 bestMissingAsk,
-                maxHedgePrice,
+                maxHedgePrice: hedgeCheck.maxHedgePrice,
+                expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
                 cancelledOpenOrders,
                 hedgeBuy,
                 secondsToClose,
@@ -377,7 +393,8 @@ export class PolymarketBot {
                 {
                   conditionId: entryConditionId,
                   bestMissingAsk,
-                  maxHedgePrice,
+                  maxHedgePrice: hedgeCheck.maxHedgePrice,
+                  expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
                   summary: postHedgeReconcile.finalSummary,
                 },
                 "Late hedge completion produced balanced position",
@@ -389,7 +406,8 @@ export class PolymarketBot {
               {
                 conditionId: entryConditionId,
                 bestMissingAsk,
-                maxHedgePrice,
+                maxHedgePrice: hedgeCheck.maxHedgePrice,
+                expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
                 summary: postHedgeReconcile.finalSummary,
               },
               "Late hedge completion still imbalanced; flattening residual position",
@@ -413,7 +431,8 @@ export class PolymarketBot {
             {
               conditionId: entryConditionId,
               bestMissingAsk,
-              maxHedgePrice,
+              maxHedgePrice: hedgeCheck.maxHedgePrice,
+              expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
               cancelledOpenOrders,
               forceSell,
               summary: reconcile.finalSummary,
