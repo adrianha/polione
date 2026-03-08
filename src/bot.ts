@@ -27,7 +27,7 @@ export class PolymarketBot {
 
   constructor(
     private readonly config: BotConfig,
-    private readonly logger: Logger
+    private readonly logger: Logger,
   ) {
     this.gammaClient = new GammaClient(config);
     this.clobClient = new PolyClobClient(config);
@@ -48,9 +48,9 @@ export class PolymarketBot {
         {
           error,
           stateFilePath: this.config.stateFilePath,
-          conditionId
+          conditionId,
         },
-        "Failed to persist entered market state"
+        "Failed to persist entered market state",
       );
     }
   }
@@ -73,9 +73,9 @@ export class PolymarketBot {
       this.logger.error(
         {
           error,
-          stateFilePath: this.config.stateFilePath
+          stateFilePath: this.config.stateFilePath,
         },
-        "Failed to load persisted entered market state"
+        "Failed to load persisted entered market state",
       );
     }
 
@@ -86,9 +86,9 @@ export class PolymarketBot {
         positionsAddress,
         relayerEnabled: this.relayerClient.isAvailable(),
         persistedEnteredMarketCount: this.enteredMarkets.size,
-        stateFilePath: this.config.stateFilePath
+        stateFilePath: this.config.stateFilePath,
       },
-      "Bot initialized"
+      "Bot initialized",
     );
 
     while (!this.stopped) {
@@ -102,16 +102,14 @@ export class PolymarketBot {
           continue;
         }
 
-        const currentConditionId = currentMarket
-          ? this.marketDiscovery.getConditionId(currentMarket)
-          : null;
+        const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
 
         if (currentMarket && currentConditionId && this.enteredMarkets.has(currentConditionId)) {
           const currentTokenIds = this.marketDiscovery.getTokenIds(currentMarket);
           if (!currentTokenIds) {
             this.logger.warn(
               { slug: currentMarket.slug, conditionId: currentConditionId },
-              "Current entered market missing token IDs"
+              "Current entered market missing token IDs",
             );
           } else {
             const currentPositions = await this.dataClient.getPositions(positionsAddress, currentConditionId);
@@ -127,9 +125,9 @@ export class PolymarketBot {
                 down: currentSummary.downSize,
                 diff: currentSummary.differenceAbs,
                 equal: positionsEqual,
-                secondsToClose
+                secondsToClose,
               },
-              "Position check"
+              "Position check",
             );
 
             if (
@@ -142,7 +140,11 @@ export class PolymarketBot {
               const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
               const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
               this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
-            } else if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+            } else if (
+              !positionsEqual &&
+              secondsToClose !== null &&
+              secondsToClose <= this.config.forceSellThresholdSeconds
+            ) {
               const forceSell = await this.tradingEngine.forceSellAll(currentSummary, currentTokenIds);
               this.logger.info({ forceSell, conditionId: currentConditionId }, "Force sell flow executed");
             }
@@ -182,18 +184,18 @@ export class PolymarketBot {
             slug: entryMarket.slug,
             conditionId: entryConditionId,
             upTokenId: entryTokenIds.upTokenId,
-            downTokenId: entryTokenIds.downTokenId
+            downTokenId: entryTokenIds.downTokenId,
           },
-          "Evaluating entry market"
+          "Evaluating entry market",
         );
 
         if (this.enteredMarkets.has(entryConditionId)) {
           this.logger.info(
             {
               conditionId: entryConditionId,
-              slug: entryMarket.slug
+              slug: entryMarket.slug,
             },
-            "Skipped new entry: market already has one paired entry"
+            "Skipped new entry: market already has one paired entry",
           );
           await sleep(this.config.loopSleepSeconds);
           continue;
@@ -214,12 +216,16 @@ export class PolymarketBot {
               down: entrySummary.downSize,
               diff: entrySummary.differenceAbs,
               equal: entryEqual,
-              secondsToClose: entrySecondsToClose
+              secondsToClose: entrySecondsToClose,
             },
-            "Skipped new entry: existing position exposure detected"
+            "Skipped new entry: existing position exposure detected",
           );
 
-          if (!entryEqual && entrySecondsToClose !== null && entrySecondsToClose <= this.config.forceSellThresholdSeconds) {
+          if (
+            !entryEqual &&
+            entrySecondsToClose !== null &&
+            entrySecondsToClose <= this.config.forceSellThresholdSeconds
+          ) {
             const forceSell = await this.tradingEngine.forceSellAll(entrySummary, entryTokenIds);
             this.logger.info({ forceSell, conditionId: entryConditionId }, "Force sell flow executed from entry guard");
           }
@@ -236,9 +242,9 @@ export class PolymarketBot {
               conditionId: entryConditionId,
               slug: entryMarket.slug,
               usdcBalance: currentUsdcBalance,
-              requiredUsdc: requiredUsdcForBothLegs
+              requiredUsdc: requiredUsdcForBothLegs,
             },
-            "Skipped new entry: insufficient USDC balance for both legs"
+            "Skipped new entry: insufficient USDC balance for both legs",
           );
           await sleep(this.config.loopSleepSeconds);
           continue;

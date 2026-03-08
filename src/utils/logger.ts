@@ -6,7 +6,7 @@ export const createLogger = (config: BotConfig) => {
     level: config.logLevel,
     base: {
       service: "polione",
-      dryRun: config.dryRun
-    }
+      dryRun: config.dryRun,
+    },
   });
 };

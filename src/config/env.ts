@@ -11,17 +11,19 @@ const boolString = z
 
 const schema = z.object({
   DRY_RUN: boolString.default(true),
-  PRIVATE_KEY: z
-    .string()
-    .regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
+  PRIVATE_KEY: z.string().regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
   FUNDER: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)
     .optional(),
   SIGNATURE_TYPE: z.coerce.number().int().min(0).max(2).default(0),
-  CHAIN_ID: z.coerce.number().int().refine((v) => v === 137 || v === 80002, {
-    message: "CHAIN_ID must be 137 or 80002"
-  }).default(137),
+  CHAIN_ID: z.coerce
+    .number()
+    .int()
+    .refine((v) => v === 137 || v === 80002, {
+      message: "CHAIN_ID must be 137 or 80002",
+    })
+    .default(137),
   CLOB_API_HOST: z.string().url().default("https://clob.polymarket.com"),
   GAMMA_API_BASE_URL: z.string().url().default("https://gamma-api.polymarket.com"),
   DATA_API_BASE_URL: z.string().url().default("https://data-api.polymarket.com"),
@@ -44,7 +46,7 @@ const schema = z.object({
   REQUEST_RETRIES: z.coerce.number().int().min(0).default(3),
   REQUEST_RETRY_BACKOFF_MS: z.coerce.number().int().min(0).default(500),
   STATE_FILE_PATH: z.string().default(".bot-state.json"),
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info")
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 
 export const loadConfig = (): BotConfig => {
@@ -78,6 +80,6 @@ export const loadConfig = (): BotConfig => {
     requestRetries: parsed.REQUEST_RETRIES,
     requestRetryBackoffMs: parsed.REQUEST_RETRY_BACKOFF_MS,
     stateFilePath: parsed.STATE_FILE_PATH,
-    logLevel: parsed.LOG_LEVEL
+    logLevel: parsed.LOG_LEVEL,
   };
 };

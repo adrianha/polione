@@ -6,9 +6,9 @@ describe("position decision logic", () => {
     const summary = summarizePositions(
       [
         { asset: "up", conditionId: "c", size: 5 },
-        { asset: "down", conditionId: "c", size: 4.99 }
+        { asset: "down", conditionId: "c", size: 4.99 },
       ],
-      { upTokenId: "up", downTokenId: "down" }
+      { upTokenId: "up", downTokenId: "down" },
     );
 
     expect(summary.upSize).toBe(5);
@@ -20,9 +20,9 @@ describe("position decision logic", () => {
     const summary = summarizePositions(
       [
         { asset: "x", conditionId: "c", size: 2, outcome: "Yes" },
-        { asset: "y", conditionId: "c", size: 1, outcome: "No" }
+        { asset: "y", conditionId: "c", size: 1, outcome: "No" },
       ],
-      { upTokenId: "up", downTokenId: "down" }
+      { upTokenId: "up", downTokenId: "down" },
     );
 
     expect(summary.upSize).toBe(2);

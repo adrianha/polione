@@ -4,7 +4,7 @@ import type { PolyClobClient } from "../clients/clobClient.js";
 export class TradingEngine {
   constructor(
     private readonly config: BotConfig,
-    private readonly clobClient: PolyClobClient
+    private readonly clobClient: PolyClobClient,
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
@@ -13,14 +13,14 @@ export class TradingEngine {
         tokenId: tokenIds.upTokenId,
         side: "BUY",
         price: this.config.orderPrice,
-        size: this.config.orderSize
+        size: this.config.orderSize,
       },
       {
         tokenId: tokenIds.downTokenId,
         side: "BUY",
         price: this.config.orderPrice,
-        size: this.config.orderSize
-      }
+        size: this.config.orderSize,
+      },
     ]);
 
     if (batchResult && typeof batchResult === "object" && "dryRun" in batchResult) {
@@ -30,7 +30,7 @@ export class TradingEngine {
       };
       return {
         up: dryRunPayload.intents?.[0],
-        down: dryRunPayload.intents?.[1]
+        down: dryRunPayload.intents?.[1],
       };
     }
 
@@ -38,11 +38,14 @@ export class TradingEngine {
 
     return {
       up: posted[0] ?? batchResult,
-      down: posted[1] ?? batchResult
+      down: posted[1] ?? batchResult,
     };
   }
 
-  async forceSellAll(summary: { upSize: number; downSize: number }, tokenIds: TokenIds): Promise<{ up?: unknown; down?: unknown }> {
+  async forceSellAll(
+    summary: { upSize: number; downSize: number },
+    tokenIds: TokenIds,
+  ): Promise<{ up?: unknown; down?: unknown }> {
     const results: { up?: unknown; down?: unknown } = {};
 
     if (summary.upSize > 0) {
@@ -50,7 +53,7 @@ export class TradingEngine {
         tokenId: tokenIds.upTokenId,
         side: "SELL",
         amount: summary.upSize,
-        price: 0.01
+        price: 0.01,
       });
     }
 
@@ -59,7 +62,7 @@ export class TradingEngine {
         tokenId: tokenIds.downTokenId,
         side: "SELL",
         amount: summary.downSize,
-        price: 0.01
+        price: 0.01,
       });
     }
 

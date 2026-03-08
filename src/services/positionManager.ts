@@ -45,7 +45,7 @@ export const summarizePositions = (positions: PositionRecord[], tokenIds: TokenI
   return {
     upSize: up,
     downSize: down,
-    differenceAbs: Math.abs(up - down)
+    differenceAbs: Math.abs(up - down),
   };
 };
 

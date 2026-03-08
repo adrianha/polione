@@ -22,7 +22,7 @@ const config: BotConfig = {
   requestRetries: 0,
   requestRetryBackoffMs: 0,
   stateFilePath: ".bot-state.test.json",
-  logLevel: "info"
+  logLevel: "info",
 };
 
 describe("market discovery integration", () => {
@@ -30,7 +30,7 @@ describe("market discovery integration", () => {
     const expected: MarketRecord = {
       slug: "btc-updown-5m-1700000100",
       conditionId: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      clobTokenIds: ["up-1", "down-1"]
+      clobTokenIds: ["up-1", "down-1"],
     };
 
     const gammaClient = {
@@ -39,7 +39,7 @@ describe("market discovery integration", () => {
           return expected;
         }
         return null;
-      }
+      },
     };
 
     const service = new MarketDiscoveryService(config, gammaClient as never);

@@ -39,7 +39,7 @@ const parseTokens = (market: MarketRecord): TokenIds | null => {
     if (typeof tokenA.token_id === "string" && typeof tokenB.token_id === "string") {
       return {
         upTokenId: tokenA.token_id,
-        downTokenId: tokenB.token_id
+        downTokenId: tokenB.token_id,
       };
     }
   }
@@ -50,7 +50,7 @@ const parseTokens = (market: MarketRecord): TokenIds | null => {
 export class MarketDiscoveryService {
   constructor(
     private readonly config: BotConfig,
-    private readonly gammaClient: GammaClient
+    private readonly gammaClient: GammaClient,
   ) {}
 
   generateSlug(timestampSec: number): string {
@@ -67,7 +67,7 @@ export class MarketDiscoveryService {
     const now = unixNow();
     const candidates = [
       getNextEpochTimestamp(now, this.config.marketIntervalSeconds),
-      getCurrentEpochTimestamp(now, this.config.marketIntervalSeconds)
+      getCurrentEpochTimestamp(now, this.config.marketIntervalSeconds),
     ];
 
     for (const candidate of candidates) {

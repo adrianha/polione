@@ -22,13 +22,13 @@ const config: BotConfig = {
   requestRetries: 0,
   requestRetryBackoffMs: 0,
   stateFilePath: ".bot-state.test.json",
-  logLevel: "info"
+  logLevel: "info",
 };
 
 describe("market discovery token parsing", () => {
   it("parses clobTokenIds string", () => {
     const gamma = {
-      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null,
     };
     const svc = new MarketDiscoveryService(config, gamma as never);
     const tokens = svc.getTokenIds({ clobTokenIds: '["up-id","down-id"]' });
@@ -37,11 +37,11 @@ describe("market discovery token parsing", () => {
 
   it("parses tokens array fallback", () => {
     const gamma = {
-      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null,
     };
     const svc = new MarketDiscoveryService(config, gamma as never);
     const tokens = svc.getTokenIds({
-      tokens: [{ token_id: "yes-token" }, { token_id: "no-token" }]
+      tokens: [{ token_id: "yes-token" }, { token_id: "no-token" }],
     });
     expect(tokens).toEqual({ upTokenId: "yes-token", downTokenId: "no-token" });
   });

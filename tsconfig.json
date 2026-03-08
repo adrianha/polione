@@ -10,9 +10,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "outDir": "dist-ts",
+    "outDir": "dist",
     "rootDir": "."
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist-ts"]
+  "exclude": ["node_modules", "dist"]
 }

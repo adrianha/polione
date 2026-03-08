@@ -8,7 +8,7 @@ import {
   SignatureType,
   type OrderPayload,
   type OpenOrdersResponse,
-  type TickSize
+  type TickSize,
 } from "@polymarket/clob-client";
 import type { BotConfig, Side as BotSide, TradeIntent } from "../types/domain.js";
 import { Wallet } from "ethers";
@@ -31,7 +31,7 @@ export class PolyClobClient {
       config.signatureType as SignatureType,
       config.funder,
       undefined,
-      true
+      true,
     );
   }
 
@@ -45,7 +45,7 @@ export class PolyClobClient {
       this.config.signatureType as SignatureType,
       this.config.funder,
       undefined,
-      true
+      true,
     );
   }
 
@@ -64,7 +64,7 @@ export class PolyClobClient {
     if (this.config.dryRun) {
       const intent: TradeIntent = {
         action: "PLACE_LIMIT",
-        payload: params
+        payload: params,
       };
       return { dryRun: true, intent };
     }
@@ -74,29 +74,31 @@ export class PolyClobClient {
         tokenID: params.tokenId,
         side: toSdkSide(params.side),
         price: params.price,
-        size: params.size
+        size: params.size,
       },
       {
         tickSize: params.tickSize ?? "0.01",
-        negRisk: params.negRisk ?? false
+        negRisk: params.negRisk ?? false,
       },
-      OrderType.GTC
+      OrderType.GTC,
     );
   }
 
-  async placeLimitOrdersBatch(params: Array<{
-    tokenId: string;
-    side: BotSide;
-    price: number;
-    size: number;
-    tickSize?: TickSize;
-    negRisk?: boolean;
-    postOnly?: boolean;
-  }>): Promise<unknown> {
+  async placeLimitOrdersBatch(
+    params: Array<{
+      tokenId: string;
+      side: BotSide;
+      price: number;
+      size: number;
+      tickSize?: TickSize;
+      negRisk?: boolean;
+      postOnly?: boolean;
+    }>,
+  ): Promise<unknown> {
     if (this.config.dryRun) {
       const intents: TradeIntent[] = params.map((item) => ({
         action: "PLACE_LIMIT",
-        payload: item
+        payload: item,
       }));
       return { dryRun: true, intents };
     }
@@ -108,18 +110,18 @@ export class PolyClobClient {
           tokenID: item.tokenId,
           side: toSdkSide(item.side),
           price: item.price,
-          size: item.size
+          size: item.size,
         },
         {
           tickSize: item.tickSize ?? "0.01",
-          negRisk: item.negRisk ?? false
-        }
+          negRisk: item.negRisk ?? false,
+        },
       );
 
       ordersArgs.push({
         order,
         orderType: OrderType.GTC,
-        postOnly: item.postOnly
+        postOnly: item.postOnly,
       });
     }
 
@@ -137,7 +139,7 @@ export class PolyClobClient {
     if (this.config.dryRun) {
       const intent: TradeIntent = {
         action: "PLACE_MARKET",
-        payload: params
+        payload: params,
       };
       return { dryRun: true, intent };
     }
@@ -147,13 +149,13 @@ export class PolyClobClient {
         tokenID: params.tokenId,
         side: toSdkSide(params.side),
         amount: params.amount,
-        price: params.price
+        price: params.price,
       },
       {
         tickSize: params.tickSize ?? "0.01",
-        negRisk: params.negRisk ?? false
+        negRisk: params.negRisk ?? false,
       },
-      OrderType.FOK
+      OrderType.FOK,
     );
   }
 
@@ -161,7 +163,7 @@ export class PolyClobClient {
     if (this.config.dryRun) {
       const intent: TradeIntent = {
         action: "CANCEL_ORDER",
-        payload: { orderId }
+        payload: { orderId },
       };
       return { dryRun: true, intent };
     }
@@ -175,7 +177,7 @@ export class PolyClobClient {
 
   async getUsdcBalance(): Promise<number> {
     const response = await this.client.getBalanceAllowance({
-      asset_type: AssetType.COLLATERAL
+      asset_type: AssetType.COLLATERAL,
     });
     const parsed = Number(response.balance);
     if (!Number.isFinite(parsed)) {

@@ -1,5 +1,3 @@
-
-
 # Workflow and roadmap
 
 ## Complete workflow diagram
@@ -107,6 +105,7 @@
 ## Detailed step-by-step workflow
 
 ### Phase 1: Initialization
+
 1. Load environment variables:
    - `PRIVATE_KEY` (required)
    - `HOST` (default: "https://clob.polymarket.com")
@@ -117,9 +116,11 @@
 3. Verify client initialization
 
 ### Phase 2: Main loop (continuous)
+
 For each market epoch:
 
 #### Step 1: Market discovery
+
 - Find current BTC 5-minute market using `find_current_market()`
 - Extract UP and DOWN token IDs
 - If not found: wait 30s and retry
@@ -127,6 +128,7 @@ For each market epoch:
 #### Step 2: Market processing
 
 ##### 2.1: Balance check
+
 - Check USDC balance
 - If insufficient (< 0.01): stop bot
 - If sufficient: continue
@@ -134,6 +136,7 @@ For each market epoch:
 ##### 2.2: Position monitoring loop
 
 Iteration flow:
+
 1. Check positions:
    - Get UP token balance
    - Get DOWN token balance
@@ -165,23 +168,24 @@ Iteration flow:
        - Recheck positions (loop back)
 
 #### Step 3: Transition to next market
+
 - Wait 10s
 - Increment market count
 - Loop back to Step 1
 
 ## Key functions and their roles
 
-| Function | Purpose |
-|----------|---------|
-| `check_balance_sufficient()` | Validates USDC balance before trading |
-| `are_positions_equal()` | Checks if UP/DOWN positions are balanced (tolerance: 0.01) |
-| `get_min_position()` | Gets minimum of UP/DOWN for merging |
-| `is_near_market_close()` | Checks if market closes within 30s |
-| `process_market()` | Main market processing logic |
-| `bot.merge_tokens()` | Merges equal UP/DOWN tokens to get USDC back |
-| `bot.force_sell_all()` | Sells all positions using market orders |
-| `bot.find_next_active_market()` | Finds the next epoch market |
-| `bot.place_limit_order_up/down()` | Places limit orders for next market |
+| Function                          | Purpose                                                    |
+| --------------------------------- | ---------------------------------------------------------- |
+| `check_balance_sufficient()`      | Validates USDC balance before trading                      |
+| `are_positions_equal()`           | Checks if UP/DOWN positions are balanced (tolerance: 0.01) |
+| `get_min_position()`              | Gets minimum of UP/DOWN for merging                        |
+| `is_near_market_close()`          | Checks if market closes within 30s                         |
+| `process_market()`                | Main market processing logic                               |
+| `bot.merge_tokens()`              | Merges equal UP/DOWN tokens to get USDC back               |
+| `bot.force_sell_all()`            | Sells all positions using market orders                    |
+| `bot.find_next_active_market()`   | Finds the next epoch market                                |
+| `bot.place_limit_order_up/down()` | Places limit orders for next market                        |
 
 ## Environment variables
 

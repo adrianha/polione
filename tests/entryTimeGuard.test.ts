@@ -22,13 +22,13 @@ const config: BotConfig = {
   requestRetries: 0,
   requestRetryBackoffMs: 0,
   stateFilePath: ".bot-state.test.json",
-  logLevel: "info"
+  logLevel: "info",
 };
 
 describe("entry time guard support", () => {
   it("returns small positive seconds-to-close for near-end market", () => {
     const gamma = {
-      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null,
     };
     const service = new MarketDiscoveryService(config, gamma as never);
     const endDate = new Date(Date.now() + 45_000).toISOString();
@@ -41,7 +41,7 @@ describe("entry time guard support", () => {
 
   it("returns null when end date is missing", () => {
     const gamma = {
-      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null
+      getMarketBySlug: async (_slug: string): Promise<MarketRecord | null> => null,
     };
     const service = new MarketDiscoveryService(config, gamma as never);
 

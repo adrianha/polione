@@ -8,11 +8,9 @@ const start = async (): Promise<void> => {
 
   logger.info(
     {
-      dryRun: config.dryRun
+      dryRun: config.dryRun,
     },
-    config.dryRun
-      ? "Starting bot in SAFE MODE (DRY_RUN=true)"
-      : "Starting bot in LIVE MODE"
+    config.dryRun ? "Starting bot in SAFE MODE (DRY_RUN=true)" : "Starting bot in LIVE MODE",
   );
 
   const bot = new PolymarketBot(config, logger);

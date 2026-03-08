@@ -6,7 +6,7 @@ interface PersistedState {
 }
 
 const defaultState = (): PersistedState => ({
-  enteredMarkets: []
+  enteredMarkets: [],
 });
 
 const normalizeState = (value: unknown): PersistedState => {
@@ -19,8 +19,9 @@ const normalizeState = (value: unknown): PersistedState => {
     return defaultState();
   }
 
-  const enteredMarkets = raw.enteredMarkets
-    .filter((item): item is string => typeof item === "string" && item.length > 0);
+  const enteredMarkets = raw.enteredMarkets.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
 
   return { enteredMarkets: Array.from(new Set(enteredMarkets)) };
 };
@@ -45,7 +46,7 @@ export class StateStore {
 
   async saveEnteredMarkets(enteredMarkets: Set<string>): Promise<void> {
     const state: PersistedState = {
-      enteredMarkets: Array.from(enteredMarkets)
+      enteredMarkets: Array.from(enteredMarkets),
     };
     const json = `${JSON.stringify(state, null, 2)}\n`;
 

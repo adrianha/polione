@@ -38,7 +38,7 @@ bun run bot
 - `bun run dev` - run with watch mode
 - `bun run typecheck` - TypeScript type checks
 - `bun run test` - run test suite
-- `bun run build` - compile to `dist-ts/`
+- `bun run build` - compile to `dist/`
 
 ## Core TypeScript Modules
 

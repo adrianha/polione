@@ -4,9 +4,7 @@ import {
   type RelayerTransactionResponse,
   type Transaction,
 } from "@polymarket/builder-relayer-client";
-import {
-  BuilderConfig,
-} from "@polymarket/builder-signing-sdk";
+import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { encodeFunctionData, type Hex, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon, polygonAmoy } from "viem/chains";
@@ -26,9 +24,9 @@ const ctfAbi = [
       { name: "parentCollectionId", type: "bytes32" },
       { name: "conditionId", type: "bytes32" },
       { name: "partition", type: "uint256[]" },
-      { name: "amount", type: "uint256" }
+      { name: "amount", type: "uint256" },
     ],
-    outputs: []
+    outputs: [],
   },
   {
     type: "function",
@@ -38,10 +36,10 @@ const ctfAbi = [
       { name: "collateralToken", type: "address" },
       { name: "parentCollectionId", type: "bytes32" },
       { name: "conditionId", type: "bytes32" },
-      { name: "indexSets", type: "uint256[]" }
+      { name: "indexSets", type: "uint256[]" },
     ],
-    outputs: []
-  }
+    outputs: [],
+  },
 ] as const;
 
 const normalizeBytes32 = (value: string): Hex => {
@@ -67,7 +65,7 @@ export class PolyRelayerClient {
     const walletClient = createWalletClient({
       account,
       chain: config.chainId === 137 ? polygon : polygonAmoy,
-      transport: http(config.polygonRpc)
+      transport: http(config.polygonRpc),
     });
 
     this.builderConfig = this.createBuilderConfig(config);
@@ -77,15 +75,13 @@ export class PolyRelayerClient {
       config.chainId,
       walletClient,
       this.builderConfig,
-      RelayerTxType.PROXY
+      RelayerTxType.PROXY,
     );
   }
 
   private createBuilderConfig(config: BotConfig): BuilderConfig | undefined {
     const hasLocalCreds =
-      Boolean(config.builderApiKey) &&
-      Boolean(config.builderApiSecret) &&
-      Boolean(config.builderApiPassphrase);
+      Boolean(config.builderApiKey) && Boolean(config.builderApiSecret) && Boolean(config.builderApiPassphrase);
 
     const hasRemoteSigner = Boolean(config.builderSignerUrl);
 
@@ -94,13 +90,11 @@ export class PolyRelayerClient {
     }
 
     const hasPartialLocalCreds =
-      Boolean(config.builderApiKey) ||
-      Boolean(config.builderApiSecret) ||
-      Boolean(config.builderApiPassphrase);
+      Boolean(config.builderApiKey) || Boolean(config.builderApiSecret) || Boolean(config.builderApiPassphrase);
 
     if (!hasLocalCreds && hasPartialLocalCreds) {
       throw new Error(
-        "Invalid builder configuration: BUILDER_API_KEY, BUILDER_API_SECRET, and BUILDER_API_PASSPHRASE must all be set"
+        "Invalid builder configuration: BUILDER_API_KEY, BUILDER_API_SECRET, and BUILDER_API_PASSPHRASE must all be set",
       );
     }
 
@@ -109,16 +103,16 @@ export class PolyRelayerClient {
         localBuilderCreds: {
           key: config.builderApiKey!,
           secret: config.builderApiSecret!,
-          passphrase: config.builderApiPassphrase!
-        }
+          passphrase: config.builderApiPassphrase!,
+        },
       });
     }
 
     return new BuilderConfig({
       remoteBuilderConfig: {
         url: config.builderSignerUrl!,
-        token: config.builderSignerToken
-      }
+        token: config.builderSignerToken,
+      },
     });
   }
 
@@ -128,7 +122,7 @@ export class PolyRelayerClient {
 
   async mergeTokens(
     conditionId: string,
-    amount: bigint
+    amount: bigint,
   ): Promise<RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | null> {
     if (!this.isAvailable()) {
       return null;
@@ -138,13 +132,13 @@ export class PolyRelayerClient {
     const data = encodeFunctionData({
       abi: ctfAbi,
       functionName: "mergePositions",
-      args: [USDC_ADDRESS, ZERO_BYTES32, normalizedConditionId, [1n, 2n], amount]
+      args: [USDC_ADDRESS, ZERO_BYTES32, normalizedConditionId, [1n, 2n], amount],
     });
 
     const tx: Transaction = {
       to: CTF_EXCHANGE_ADDRESS,
       data,
-      value: "0"
+      value: "0",
     };
 
     if (this.config.dryRun) {
@@ -155,9 +149,9 @@ export class PolyRelayerClient {
           payload: {
             conditionId: normalizedConditionId,
             amount: amount.toString(),
-            to: CTF_EXCHANGE_ADDRESS
-          }
-        }
+            to: CTF_EXCHANGE_ADDRESS,
+          },
+        },
       };
     }
 
@@ -166,7 +160,7 @@ export class PolyRelayerClient {
 
   async redeemPositions(
     conditionId: string,
-    indexSets: bigint[] = [1n, 2n]
+    indexSets: bigint[] = [1n, 2n],
   ): Promise<RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | null> {
     if (!this.isAvailable()) {
       return null;
@@ -176,13 +170,13 @@ export class PolyRelayerClient {
     const data = encodeFunctionData({
       abi: ctfAbi,
       functionName: "redeemPositions",
-      args: [USDC_ADDRESS, ZERO_BYTES32, normalizedConditionId, indexSets]
+      args: [USDC_ADDRESS, ZERO_BYTES32, normalizedConditionId, indexSets],
     });
 
     const tx: Transaction = {
       to: CTF_EXCHANGE_ADDRESS,
       data,
-      value: "0"
+      value: "0",
     };
 
     if (this.config.dryRun) {
@@ -193,9 +187,9 @@ export class PolyRelayerClient {
           payload: {
             conditionId: normalizedConditionId,
             indexSets: indexSets.map((value) => value.toString()),
-            to: CTF_EXCHANGE_ADDRESS
-          }
-        }
+            to: CTF_EXCHANGE_ADDRESS,
+          },
+        },
       };
     }
 
