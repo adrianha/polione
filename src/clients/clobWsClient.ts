@@ -163,7 +163,6 @@ export class ClobWsClient {
   }
 
   private processWsEvent(event: unknown): void {
-    console.log("Received WS event:", event);
     if (!event || typeof event !== "object") {
       return;
     }
