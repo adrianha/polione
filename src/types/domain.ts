@@ -24,11 +24,25 @@ export interface BotConfig {
   forceSellThresholdSeconds: number;
   loopSleepSeconds: number;
   positionRecheckSeconds: number;
+  entryReconcileSeconds: number;
+  entryReconcilePollSeconds: number;
+  entryCancelOpenOrders: boolean;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;
   stateFilePath: string;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
+}
+
+export type EntryReconcileStatus = "balanced" | "flattened" | "failed";
+
+export interface EntryReconcileResult {
+  status: EntryReconcileStatus;
+  attempts: number;
+  finalSummary: PositionSummary;
+  cancelledOpenOrders?: unknown[];
+  flattenResult?: { up?: unknown; down?: unknown };
+  reason?: string;
 }
 
 export interface MarketToken {

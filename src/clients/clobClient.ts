@@ -175,6 +175,43 @@ export class PolyClobClient {
     return this.client.getOpenOrders();
   }
 
+  async cancelOpenOrdersForTokenIds(tokenIds: string[]): Promise<unknown[]> {
+    const uniqueTokenIds = new Set(tokenIds);
+    if (uniqueTokenIds.size === 0) {
+      return [];
+    }
+
+    const openOrders = await this.getOpenOrders();
+    const records = Array.isArray(openOrders) ? openOrders : [];
+
+    const matches = records.filter((record) => {
+      const tokenId =
+        (record as { tokenID?: unknown }).tokenID ??
+        (record as { tokenId?: unknown }).tokenId ??
+        (record as { asset_id?: unknown }).asset_id;
+
+      return typeof tokenId === "string" && uniqueTokenIds.has(tokenId);
+    });
+
+    const results: unknown[] = [];
+
+    for (const record of matches) {
+      const orderId =
+        (record as { id?: unknown }).id ??
+        (record as { orderID?: unknown }).orderID ??
+        (record as { orderId?: unknown }).orderId;
+
+      if (typeof orderId !== "string" || !orderId) {
+        continue;
+      }
+
+      const cancel = await this.cancelOrder(orderId);
+      results.push(cancel);
+    }
+
+    return results;
+  }
+
   async getUsdcBalance(): Promise<number> {
     const response = await this.client.getBalanceAllowance({
       asset_type: AssetType.COLLATERAL,

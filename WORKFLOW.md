@@ -47,8 +47,9 @@ MAIN LOOP (until stop signal)
   |      - sufficient USDC for both legs (ORDER_PRICE * ORDER_SIZE * 2)
   |
   +--> Place paired limit buys (UP + DOWN)
-  |      - persist entered condition ID
-  |      - sleep POSITION_RECHECK_SECONDS
+  |      - reconcile fills for ENTRY_RECONCILE_SECONDS
+  |      - if balanced: persist entered condition ID, sleep POSITION_RECHECK_SECONDS
+  |      - if imbalanced: optional cancel open entry orders, flatten exposure, do not persist entered state
   |
   +--> On skip or loop-level error: sleep LOOP_SLEEP_SECONDS
   |
@@ -114,8 +115,14 @@ Balance guard before placing new paired orders:
 If all guards pass:
 
 - Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
-- Persist condition ID in entered market state (`STATE_FILE_PATH`).
-- Sleep `POSITION_RECHECK_SECONDS`.
+- Reconcile fill status via `TradingEngine.reconcilePairedEntry(...)` for `ENTRY_RECONCILE_SECONDS`.
+- If balanced within tolerance:
+  - Persist condition ID in entered market state (`STATE_FILE_PATH`).
+  - Sleep `POSITION_RECHECK_SECONDS`.
+- If still imbalanced at reconcile timeout:
+  - Optionally cancel open entry orders for both legs (`ENTRY_CANCEL_OPEN_ORDERS=true`).
+  - Flatten residual exposure with existing market-sell behavior.
+  - Do not persist entered condition ID for that cycle.
 
 ### 5) Loop error handling and retry behavior
 
