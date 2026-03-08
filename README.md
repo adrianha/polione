@@ -95,6 +95,8 @@ Common defaults:
 - `ENTRY_MAX_SPREAD=0.03`
 - `ENTRY_DEPTH_PRICE_BAND=0.02`
 - `ENTRY_DEPTH_USAGE_RATIO=0.60`
+- `FORCE_WINDOW_FEE_BUFFER=0.01`
+- `FORCE_WINDOW_MIN_PROFIT_PER_SHARE=0.005`
 - `REQUEST_TIMEOUT_MS=30000`
 - `REQUEST_RETRIES=3`
 - `REQUEST_RETRY_BACKOFF_MS=500`
@@ -118,6 +120,7 @@ Optional relayer builder auth:
 - After paired order placement, the bot runs an entry reconciliation window.
 - If entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
 - When within `FORCE_SELL_THRESHOLD_SECONDS` to market close, repricing is skipped and fallback flatten is prioritized.
+- Inside force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 

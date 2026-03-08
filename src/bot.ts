@@ -318,9 +318,121 @@ export class PolymarketBot {
         positionsAddress,
         conditionId: entryConditionId,
         tokenIds: entryTokenIds,
-        flattenOnImbalance: isFinalAttempt,
-        cancelOpenOrders: true,
+        flattenOnImbalance: isFinalAttempt && !isInsideForceSellWindow,
+        cancelOpenOrders: !isInsideForceSellWindow,
       });
+
+      if (isInsideForceSellWindow && isFinalAttempt && reconcile.status === "imbalanced") {
+        const missingLegTokenId =
+          reconcile.finalSummary.upSize > reconcile.finalSummary.downSize
+            ? entryTokenIds.downTokenId
+            : entryTokenIds.upTokenId;
+        const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
+
+        if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
+          const filledLegAvgPrice = entryPrice;
+          const maxHedgePrice =
+            1 -
+            filledLegAvgPrice -
+            this.config.forceWindowFeeBuffer -
+            this.config.forceWindowMinProfitPerShare;
+
+          if (bestMissingAsk <= maxHedgePrice) {
+            const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
+            const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(
+              reconcile.finalSummary,
+              entryTokenIds,
+              maxHedgePrice,
+            );
+
+            this.logger.warn(
+              {
+                conditionId: entryConditionId,
+                bestMissingAsk,
+                maxHedgePrice,
+                cancelledOpenOrders,
+                hedgeBuy,
+                secondsToClose,
+              },
+              "Inside force-sell window: completed missing leg because hedge was profitable",
+            );
+
+            const postHedgeReconcile = await this.tradingEngine.reconcilePairedEntry({
+              positionsAddress,
+              conditionId: entryConditionId,
+              tokenIds: entryTokenIds,
+              flattenOnImbalance: true,
+              cancelOpenOrders: true,
+            });
+
+            if (postHedgeReconcile.status === "balanced") {
+              await this.markEnteredMarket(entryConditionId);
+              this.logger.info(
+                {
+                  conditionId: entryConditionId,
+                  bestMissingAsk,
+                  maxHedgePrice,
+                  summary: postHedgeReconcile.finalSummary,
+                },
+                "Late hedge completion produced balanced position",
+              );
+              return this.config.positionRecheckSeconds;
+            }
+
+            this.logger.warn(
+              {
+                conditionId: entryConditionId,
+                bestMissingAsk,
+                maxHedgePrice,
+                summary: postHedgeReconcile.finalSummary,
+              },
+              "Late hedge completion still imbalanced; flattening residual position",
+            );
+
+            const flattenAfterHedge = await this.tradingEngine.forceSellAll(postHedgeReconcile.finalSummary, entryTokenIds);
+            this.logger.warn(
+              {
+                conditionId: entryConditionId,
+                flattenAfterHedge,
+                summary: postHedgeReconcile.finalSummary,
+              },
+              "Flattened residual after unsuccessful late hedge completion",
+            );
+            return this.config.loopSleepSeconds;
+          }
+
+          const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
+          const forceSell = await this.tradingEngine.forceSellAll(reconcile.finalSummary, entryTokenIds);
+          this.logger.warn(
+            {
+              conditionId: entryConditionId,
+              bestMissingAsk,
+              maxHedgePrice,
+              cancelledOpenOrders,
+              forceSell,
+              summary: reconcile.finalSummary,
+              secondsToClose,
+            },
+            "Inside force-sell window: hedge not profitable, cancelled open orders and flattened filled position",
+          );
+          return this.config.loopSleepSeconds;
+        }
+
+        const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
+        const forceSell = await this.tradingEngine.forceSellAll(reconcile.finalSummary, entryTokenIds);
+        this.logger.warn(
+          {
+            conditionId: entryConditionId,
+            bestMissingAsk,
+            cancelledOpenOrders,
+            forceSell,
+            summary: reconcile.finalSummary,
+            secondsToClose,
+          },
+          "Inside force-sell window: missing-leg price unavailable, cancelled open orders and flattened filled position",
+        );
+        return this.config.loopSleepSeconds;
+      }
 
       if (reconcile.status === "balanced") {
         await this.markEnteredMarket(entryConditionId);

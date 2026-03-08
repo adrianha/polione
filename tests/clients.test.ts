@@ -28,6 +28,8 @@ const config: BotConfig = {
   entryMaxSpread: 0.03,
   entryDepthPriceBand: 0.02,
   entryDepthUsageRatio: 0.6,
+  forceWindowFeeBuffer: 0.01,
+  forceWindowMinProfitPerShare: 0.005,
   requestTimeoutMs: 30_000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,

@@ -127,6 +127,12 @@ If all guards pass:
   - step size: `ENTRY_REPRICE_STEP`
   - hard cap: `ENTRY_MAX_PRICE`
 - Near market close (`secondsToClose <= FORCE_SELL_THRESHOLD_SECONDS`), repricing attempts are disabled and final fallback is prioritized.
+- Inside force-sell window, if entry is imbalanced:
+  - cancel open entry orders first,
+  - evaluate missing-leg best ask against profitable hedge threshold:
+    - `maxHedgePrice = 1 - filledLegAvgPrice - FORCE_WINDOW_FEE_BUFFER - FORCE_WINDOW_MIN_PROFIT_PER_SHARE`
+  - if profitable, complete missing leg and re-check balance,
+  - if not profitable (or still imbalanced), flatten filled exposure.
 - If balanced within tolerance:
   - Persist condition ID in entered market state (`STATE_FILE_PATH`).
   - Sleep `POSITION_RECHECK_SECONDS`.

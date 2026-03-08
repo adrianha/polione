@@ -90,6 +90,11 @@ export class TradingEngine {
     return depth;
   }
 
+  private getBestAsk(book: OrderBookSummary): number {
+    const ask = this.parsePositive(book.asks?.[0]?.price);
+    return ask > 0 ? ask : Number.POSITIVE_INFINITY;
+  }
+
   async evaluateLiquidityForEntry(tokenIds: TokenIds, entryPrice: number): Promise<{
     allowed: boolean;
     orderSize: number;
@@ -148,6 +153,44 @@ export class TradingEngine {
       downSpread: downTop.spread,
       upDepth,
       downDepth,
+    };
+  }
+
+  async getBestAskPrice(tokenId: string): Promise<number> {
+    const book = await this.clobClient.getOrderBook(tokenId);
+    return this.getBestAsk(book);
+  }
+
+  async cancelEntryOpenOrders(tokenIds: TokenIds): Promise<unknown[]> {
+    return this.clobClient.cancelOpenOrdersForTokenIds([tokenIds.upTokenId, tokenIds.downTokenId]);
+  }
+
+  async completeMissingLegForHedge(
+    summary: { upSize: number; downSize: number },
+    tokenIds: TokenIds,
+    maxBuyPrice: number,
+  ): Promise<{ tokenId: string; amount: number; result: unknown } | null> {
+    const missingUp = Math.max(0, summary.downSize - summary.upSize);
+    const missingDown = Math.max(0, summary.upSize - summary.downSize);
+
+    if (missingUp <= 0 && missingDown <= 0) {
+      return null;
+    }
+
+    const tokenId = missingUp > 0 ? tokenIds.upTokenId : tokenIds.downTokenId;
+    const amount = missingUp > 0 ? missingUp : missingDown;
+
+    const result = await this.clobClient.placeMarketOrder({
+      tokenId,
+      side: "BUY",
+      amount,
+      price: maxBuyPrice,
+    });
+
+    return {
+      tokenId,
+      amount,
+      result,
     };
   }
 

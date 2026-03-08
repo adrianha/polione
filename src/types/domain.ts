@@ -34,6 +34,8 @@ export interface BotConfig {
   entryMaxSpread: number;
   entryDepthPriceBand: number;
   entryDepthUsageRatio: number;
+  forceWindowFeeBuffer: number;
+  forceWindowMinProfitPerShare: number;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;
