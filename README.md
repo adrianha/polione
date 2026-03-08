@@ -84,6 +84,7 @@ Common defaults:
 - `POSITION_EQUALITY_TOLERANCE=0.01`
 - `FORCE_SELL_THRESHOLD_SECONDS=30`
 - `LOOP_SLEEP_SECONDS=10`
+- `CURRENT_LOOP_SLEEP_SECONDS=3`
 - `POSITION_RECHECK_SECONDS=60`
 - `ENTRY_RECONCILE_SECONDS=15`
 - `ENTRY_RECONCILE_POLL_SECONDS=3`
@@ -116,6 +117,7 @@ Optional relayer builder auth:
 - Persisted state prevents multiple paired entries into the same condition across restarts.
 - After paired order placement, the bot runs an entry reconciliation window.
 - If entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
+- When within `FORCE_SELL_THRESHOLD_SECONDS` to market close, repricing is skipped and fallback flatten is prioritized.
 - If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 

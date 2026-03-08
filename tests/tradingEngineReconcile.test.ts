@@ -17,6 +17,7 @@ const baseConfig: BotConfig = {
   positionEqualityTolerance: 0.01,
   forceSellThresholdSeconds: 30,
   loopSleepSeconds: 10,
+  currentLoopSleepSeconds: 3,
   positionRecheckSeconds: 60,
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,

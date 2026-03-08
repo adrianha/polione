@@ -209,6 +209,13 @@ export class PolymarketBot {
     }
 
     const isCurrentMarketEntry = currentConditionId !== null && entryConditionId === currentConditionId;
+    const secondsToClose = isCurrentMarketEntry
+      ? this.marketDiscovery.getSecondsToMarketClose(entryMarket)
+      : null;
+    const isInsideForceSellWindow =
+      isCurrentMarketEntry &&
+      secondsToClose !== null &&
+      secondsToClose <= this.config.forceSellThresholdSeconds;
 
     if (!isCurrentMarketEntry) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
@@ -230,7 +237,9 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    for (let attempt = 0; attempt <= this.config.entryMaxRepriceAttempts; attempt += 1) {
+    const maxRepriceAttempts = isInsideForceSellWindow ? 0 : this.config.entryMaxRepriceAttempts;
+
+    for (let attempt = 0; attempt <= maxRepriceAttempts; attempt += 1) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(attempt);
       const liquidity = await this.tradingEngine.evaluateLiquidityForEntry(entryTokenIds, entryPrice);
       if (!liquidity.allowed) {
@@ -244,6 +253,8 @@ export class PolymarketBot {
             downSpread: liquidity.downSpread,
             upDepth: liquidity.upDepth,
             downDepth: liquidity.downDepth,
+            secondsToClose,
+            forceSellThresholdSeconds: this.config.forceSellThresholdSeconds,
           },
           "Skipped entry attempt due to liquidity/spread gate",
         );
@@ -258,16 +269,18 @@ export class PolymarketBot {
           entryPrice,
           orderSize: liquidity.orderSize,
           attempt,
-          maxAttempts: this.config.entryMaxRepriceAttempts,
+          maxAttempts: maxRepriceAttempts,
           upSpread: liquidity.upSpread,
           downSpread: liquidity.downSpread,
           upDepth: liquidity.upDepth,
           downDepth: liquidity.downDepth,
+          secondsToClose,
+          forceSellWindow: isInsideForceSellWindow,
         },
         "Placed paired limit buy orders",
       );
 
-      const isFinalAttempt = attempt >= this.config.entryMaxRepriceAttempts;
+      const isFinalAttempt = attempt >= maxRepriceAttempts;
       const reconcile = await this.tradingEngine.reconcilePairedEntry({
         positionsAddress,
         conditionId: entryConditionId,
@@ -303,6 +316,7 @@ export class PolymarketBot {
             reason: reconcile.reason,
             entryAttempt: attempt,
             nextPrice: this.tradingEngine.getEntryPriceForAttempt(attempt + 1),
+            secondsToClose,
           },
           "Entry remains imbalanced; repricing paired entry",
         );
@@ -378,7 +392,7 @@ export class PolymarketBot {
       try {
         const currentMarket = this.latestCurrentMarket;
         if (!currentMarket) {
-          await sleep(this.config.loopSleepSeconds);
+          await sleep(this.config.currentLoopSleepSeconds);
           continue;
         }
 
@@ -394,7 +408,7 @@ export class PolymarketBot {
         this.logger.error({ error }, "Current market loop error");
       }
 
-      await sleep(this.config.loopSleepSeconds);
+      await sleep(this.config.currentLoopSleepSeconds);
     }
   }
 

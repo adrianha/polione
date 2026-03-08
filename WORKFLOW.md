@@ -126,6 +126,7 @@ If all guards pass:
   - max retries: `ENTRY_MAX_REPRICE_ATTEMPTS`
   - step size: `ENTRY_REPRICE_STEP`
   - hard cap: `ENTRY_MAX_PRICE`
+- Near market close (`secondsToClose <= FORCE_SELL_THRESHOLD_SECONDS`), repricing attempts are disabled and final fallback is prioritized.
 - If balanced within tolerance:
   - Persist condition ID in entered market state (`STATE_FILE_PATH`).
   - Sleep `POSITION_RECHECK_SECONDS`.
@@ -138,6 +139,7 @@ If all guards pass:
 
 - Loop body is wrapped in `try/catch`.
 - Any loop-level error is logged; process continues after sleeping `LOOP_SLEEP_SECONDS`.
+- Current entered-market management loop runs on `CURRENT_LOOP_SLEEP_SECONDS` cadence.
 - HTTP/API call retries use configurable retry settings:
   - `REQUEST_RETRIES`
   - `REQUEST_RETRY_BACKOFF_MS`
