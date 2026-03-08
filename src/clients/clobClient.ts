@@ -4,6 +4,7 @@ import {
   ClobClient,
   OrderType,
   type PostOrdersArgs,
+  type OrderBookSummary,
   Side,
   SignatureType,
   type OrderPayload,
@@ -173,6 +174,10 @@ export class PolyClobClient {
 
   async getOpenOrders(): Promise<OpenOrdersResponse> {
     return this.client.getOpenOrders();
+  }
+
+  async getOrderBook(tokenId: string): Promise<OrderBookSummary> {
+    return this.client.getOrderBook(tokenId);
   }
 
   async cancelOpenOrdersForTokenIds(tokenIds: string[]): Promise<unknown[]> {

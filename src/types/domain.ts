@@ -30,6 +30,9 @@ export interface BotConfig {
   entryMaxRepriceAttempts: number;
   entryRepriceStep: number;
   entryMaxPrice: number;
+  entryMaxSpread: number;
+  entryDepthPriceBand: number;
+  entryDepthUsageRatio: number;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;

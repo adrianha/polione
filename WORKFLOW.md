@@ -116,6 +116,11 @@ Balance guard before placing new paired orders:
 If all guards pass:
 
 - Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
+- Before each entry attempt, run liquidity gate from order books:
+  - spread cap: `ENTRY_MAX_SPREAD`
+  - depth band above entry price: `ENTRY_DEPTH_PRICE_BAND`
+  - depth usage ratio for adaptive order size: `ENTRY_DEPTH_USAGE_RATIO`
+  - minimum acceptable adaptive size: `ORDER_SIZE`
 - Reconcile fill status via `TradingEngine.reconcilePairedEntry(...)` for `ENTRY_RECONCILE_SECONDS`.
 - If imbalanced, retry paired entry at incrementally higher bounded price levels:
   - max retries: `ENTRY_MAX_REPRICE_ATTEMPTS`

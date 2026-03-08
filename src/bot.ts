@@ -210,12 +210,34 @@ export class PolymarketBot {
 
     if (!isCurrentMarketEntry) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
-      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice);
+      const liquidity = await this.tradingEngine.evaluateLiquidityForEntry(entryTokenIds, entryPrice);
+      if (!liquidity.allowed) {
+        this.logger.warn(
+          {
+            conditionId: entryConditionId,
+            entryPrice,
+            reason: liquidity.reason,
+            upSpread: liquidity.upSpread,
+            downSpread: liquidity.downSpread,
+            upDepth: liquidity.upDepth,
+            downDepth: liquidity.downDepth,
+          },
+          "Skipped entry due to liquidity/spread gate",
+        );
+        return this.config.loopSleepSeconds;
+      }
+
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice, liquidity.orderSize);
       this.logger.info(
         {
           paired,
           conditionId: entryConditionId,
           entryPrice,
+          orderSize: liquidity.orderSize,
+          upSpread: liquidity.upSpread,
+          downSpread: liquidity.downSpread,
+          upDepth: liquidity.upDepth,
+          downDepth: liquidity.downDepth,
         },
         "Placed paired limit buy orders for non-current market; reconciliation deferred",
       );
@@ -225,14 +247,37 @@ export class PolymarketBot {
 
     for (let attempt = 0; attempt <= this.config.entryMaxRepriceAttempts; attempt += 1) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(attempt);
-      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice);
+      const liquidity = await this.tradingEngine.evaluateLiquidityForEntry(entryTokenIds, entryPrice);
+      if (!liquidity.allowed) {
+        this.logger.warn(
+          {
+            conditionId: entryConditionId,
+            attempt,
+            entryPrice,
+            reason: liquidity.reason,
+            upSpread: liquidity.upSpread,
+            downSpread: liquidity.downSpread,
+            upDepth: liquidity.upDepth,
+            downDepth: liquidity.downDepth,
+          },
+          "Skipped entry attempt due to liquidity/spread gate",
+        );
+        return this.config.loopSleepSeconds;
+      }
+
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice, liquidity.orderSize);
       this.logger.info(
         {
           paired,
           conditionId: entryConditionId,
           entryPrice,
+          orderSize: liquidity.orderSize,
           attempt,
           maxAttempts: this.config.entryMaxRepriceAttempts,
+          upSpread: liquidity.upSpread,
+          downSpread: liquidity.downSpread,
+          upDepth: liquidity.upDepth,
+          downDepth: liquidity.downDepth,
         },
         "Placed paired limit buy orders",
       );

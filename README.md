@@ -91,6 +91,9 @@ Common defaults:
 - `ENTRY_MAX_REPRICE_ATTEMPTS=2`
 - `ENTRY_REPRICE_STEP=0.01`
 - `ENTRY_MAX_PRICE=0.50`
+- `ENTRY_MAX_SPREAD=0.03`
+- `ENTRY_DEPTH_PRICE_BAND=0.02`
+- `ENTRY_DEPTH_USAGE_RATIO=0.60`
 - `REQUEST_TIMEOUT_MS=30000`
 - `REQUEST_RETRIES=3`
 - `REQUEST_RETRY_BACKOFF_MS=500`
@@ -114,6 +117,7 @@ Optional relayer builder auth:
 - After paired order placement, the bot runs an entry reconciliation window.
 - If entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
 - If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
+- Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 
 ## Workflow
 
