@@ -14,6 +14,7 @@ import { sleep } from "./utils/time.js";
 export class PolymarketBot {
   private stopped = false;
   private readonly enteredMarkets = new Set<string>();
+  private readonly mergeAttemptedMarkets = new Set<string>();
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
@@ -131,7 +132,13 @@ export class PolymarketBot {
               "Position check"
             );
 
-            if (positionsEqual && currentSummary.upSize > 0 && this.relayerClient.isAvailable()) {
+            if (
+              positionsEqual &&
+              currentSummary.upSize > 0 &&
+              this.relayerClient.isAvailable() &&
+              !this.mergeAttemptedMarkets.has(currentConditionId)
+            ) {
+              this.mergeAttemptedMarkets.add(currentConditionId);
               const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
               const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
               this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
