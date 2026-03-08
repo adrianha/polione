@@ -90,4 +90,33 @@ describe("trading engine entry reconciliation", () => {
     expect(result.cancelledOpenOrders).toBeDefined();
     expect(sold).toEqual([{ tokenId: "up-token", amount: 5 }]);
   });
+
+  it("fails reconciliation when no leg fills", async () => {
+    const sold: Array<{ tokenId: string; amount: number }> = [];
+    const clobClient = {
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [{ cancelled: 1 }],
+      placeMarketOrder: async (params: { tokenId: string; amount: number }) => {
+        sold.push({ tokenId: params.tokenId, amount: params.amount });
+        return { dryRun: true };
+      },
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => {
+        return [];
+      },
+    };
+
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+    const result = await engine.reconcilePairedEntry({
+      positionsAddress: "0xabc",
+      conditionId: "cond",
+      tokenIds,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.reason).toContain("No fills detected");
+    expect(sold).toEqual([]);
+  });
 });

@@ -93,7 +93,8 @@ export class TradingEngine {
       const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
       finalSummary = summarizePositions(positions, params.tokenIds);
 
-      if (arePositionsEqual(finalSummary, this.config.positionEqualityTolerance)) {
+      const hasBothLegsFilled = finalSummary.upSize > 0 && finalSummary.downSize > 0;
+      if (hasBothLegsFilled && arePositionsEqual(finalSummary, this.config.positionEqualityTolerance)) {
         return {
           status: "balanced",
           attempts: attempt,
@@ -118,6 +119,17 @@ export class TradingEngine {
       } catch (error) {
         reasons.push(`Cancel open orders failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+
+    if (finalSummary.upSize <= 0 && finalSummary.downSize <= 0) {
+      reasons.push("No fills detected during entry reconciliation window");
+      return {
+        status: "failed",
+        attempts,
+        finalSummary,
+        cancelledOpenOrders,
+        reason: reasons.join("; "),
+      };
     }
 
     try {
