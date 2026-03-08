@@ -1,250 +1,156 @@
-# Workflow and roadmap
+# Workflow and Runtime Logic
 
-## Complete workflow diagram
+This document describes the workflow currently implemented in the TypeScript bot.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    BOT INITIALIZATION                        │
-│  • Load PRIVATE_KEY, HOST, CHAIN_ID, etc. from .env         │
-│  • Initialize PolymarketBot with CLOB client                │
-│  • Verify client initialization                              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    MAIN LOOP (Infinite)                      │
-│  Market Count: #1, #2, #3, ...                              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│              STEP 1: FIND CURRENT MARKET                     │
-│  • Call bot.find_current_market()                           │
-│  • Get BTC 5-min market for current epoch                   │
-│  • Extract UP and DOWN token IDs                            │
-│  • If not found → Wait 30s → Retry                         │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│              STEP 2: PROCESS MARKET                          │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ 2.1: CHECK BALANCE                                     │  │
-│  │  • Check USDC balance                                 │  │
-│  │  • If insufficient → STOP BOT ❌                      │  │
-│  │  • If sufficient → Continue ✅                        │  │
-│  └──────────────────────┬─────────────────────────────────┘  │
-│                         │                                     │
-│                         ▼                                     │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ 2.2: POSITION CHECK LOOP (Continuous)                 │  │
-│  │                                                        │  │
-│  │  ┌──────────────────────────────────────────────┐    │  │
-│  │  │ Check UP and DOWN token balances              │    │  │
-│  │  │ Display: UP balance, DOWN balance, Difference│    │  │
-│  │  └──────────────┬───────────────────────────────┘    │  │
-│  │                 │                                      │  │
-│  │                 ▼                                      │  │
-│  │  ┌──────────────────────────────────────────────┐    │  │
-│  │  │ Are positions EQUAL? (within 0.01 tolerance) │    │  │
-│  │  └──────┬───────────────────────┬─────────────────┘    │  │
-│  │         │ YES                  │ NO                    │  │
-│  │         ▼                      ▼                       │  │
-│  │  ┌──────────────┐    ┌──────────────────────────┐   │  │
-│  │  │ MERGE PATH   │    │ CHECK TIME TO CLOSE       │   │  │
-│  │  │              │    │                           │   │  │
-│  │  │ • Merge equal │    │ • Is 30s before close?    │   │  │
-│  │  │   tokens     │    │   ┌────────┬──────────┐   │   │  │
-│  │  │ • Get min    │    │   │ YES    │ NO      │   │   │  │
-│  │  │   position   │    │   ▼        ▼         │   │   │  │
-│  │  │ • Call       │    │ ┌──────┐ ┌────────┐ │   │   │  │
-│  │  │   merge_tokens│  │ │FORCE │ │ WAIT 60s│ │   │   │  │
-│  │  │              │    │ │SELL  │ │ RECHECK │ │   │   │  │
-│  │  │ If success:  │    │ └──┬───┘ └────┬────┘ │   │   │  │
-│  │  │   → NEXT     │    │    │          │      │   │   │  │
-│  │  │   MARKET     │    │    │          └──────┼───┘   │  │
-│  │  │              │    │    │                 │       │  │
-│  │  │ If fail:     │    │    │                 │       │  │
-│  │  │   → Wait 60s │    │    │                 │       │  │
-│  │  │   → Retry    │    │    │                 │       │  │
-│  │  └──────┬───────┘    │    │                 │       │  │
-│  │         │            │    │                 │       │  │
-│  │         └────────────┴────┴─────────────────┘       │  │
-│  │                    │                                  │  │
-│  │                    ▼                                  │  │
-│  │         ┌───────────────────────────┐                  │  │
-│  │         │ PLACE ORDERS FOR NEXT     │                  │  │
-│  │         │ EPOCH MARKET              │                  │  │
-│  │         │                           │                  │  │
-│  │         │ • Find next market        │                  │  │
-│  │         │ • Get ORDER_PRICE,        │                  │  │
-│  │         │   ORDER_SIZE from .env    │                  │  │
-│  │         │ • Place BUY limit order   │                  │  │
-│  │         │   for UP token            │                  │  │
-│  │         │ • Place BUY limit order   │                  │  │
-│  │         │   for DOWN token           │                  │  │
-│  │         └───────────┬───────────────┘                  │  │
-│  │                     │                                   │  │
-│  │                     ▼                                   │  │
-│  │         ┌───────────────────────────┐                  │  │
-│  │         │ RETURN TO MAIN LOOP       │                  │  │
-│  │         │ (Continue to next market)  │                  │  │
-│  │         └───────────────────────────┘                  │  │
-│  └──────────────────────────────────────────────────────┘  │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│              STEP 3: WAIT & CONTINUE                         │
-│  • Wait 10s before checking next market                     │
-│  • Loop back to STEP 1 (Find next market)                   │
-│  • Market count increments                                  │
-└─────────────────────────────────────────────────────────────┘
+## High-level execution flow
+
+```text
+START
+  |
+  v
+Load/validate config (src/config/env.ts)
+  |
+  v
+Construct bot + clients/services (src/bot.ts)
+  |
+  v
+Init CLOB credentials (clobClient.init)
+  |
+  v
+Load persisted entered market state (STATE_FILE_PATH)
+  |
+  v
+MAIN LOOP (until stop signal)
+  |
+  +--> Discover current market + next market
+  |      - findCurrentActiveMarket()
+  |      - findNextActiveMarket()
+  |
+  +--> If no market found: sleep LOOP_SLEEP_SECONDS, continue
+  |
+  +--> If current market is an entered market:
+  |      - fetch positions for current condition
+  |      - summarize UP/DOWN sizes and difference
+  |      - compute equality + seconds to close
+  |      - decision:
+  |          A) equal + relayer available + not merge-attempted -> merge
+  |          B) not equal + near close (<= FORCE_SELL_THRESHOLD_SECONDS) -> force sell
+  |
+  +--> Select entry market from next market
+  |      - must be distinct from current condition
+  |
+  +--> Entry guards (skip cycle if any fail):
+  |      - token IDs exist
+  |      - condition ID exists
+  |      - condition not already in entered state
+  |      - no existing position exposure in candidate market
+  |      - sufficient USDC for both legs (ORDER_PRICE * ORDER_SIZE * 2)
+  |
+  +--> Place paired limit buys (UP + DOWN)
+  |      - persist entered condition ID
+  |      - sleep POSITION_RECHECK_SECONDS
+  |
+  +--> On skip or loop-level error: sleep LOOP_SLEEP_SECONDS
+  |
+  `--> repeat
 ```
 
-## Detailed step-by-step workflow
+## Phase details
 
-### Phase 1: Initialization
+### 1) Startup
 
-1. Load environment variables:
-   - `PRIVATE_KEY` (required)
-   - `HOST` (default: "https://clob.polymarket.com")
-   - `FUNDER`, `CHAIN_ID`, `SIGNATURE_TYPE` (optional)
-   - `ORDER_PRICE` (default: 0.46)
-   - `ORDER_SIZE` (default: 5.0)
-2. Initialize `PolymarketBot` with CLOB client
-3. Verify client initialization
+- `src/main.ts` loads config and creates logger.
+- `src/main.ts` creates `PolymarketBot` and registers SIGINT/SIGTERM handlers.
+- `src/bot.ts` initializes CLOB API credentials before entering the loop.
+- `src/bot.ts` resolves addresses:
+  - signer address from CLOB wallet
+  - positions address = `FUNDER` when provided, otherwise signer address
+- `src/bot.ts` loads persisted entered market condition IDs from `STATE_FILE_PATH`.
 
-### Phase 2: Main loop (continuous)
+### 2) Market discovery
 
-For each market epoch:
+- `src/services/marketDiscovery.ts` is used each cycle to find:
+  - current active market for current epoch
+  - next active market (next epoch first, then current fallback)
+- If both are missing, the bot logs and sleeps `LOOP_SLEEP_SECONDS`.
 
-#### Step 1: Market discovery
+### 3) Current entered market management
 
-- Find current BTC 5-minute market using `find_current_market()`
-- Extract UP and DOWN token IDs
-- If not found: wait 30s and retry
+This block runs only when the current market condition is already in the entered set.
 
-#### Step 2: Market processing
+- Fetch positions via `src/clients/dataClient.ts` for current condition.
+- Summarize with `summarizePositions` and compare with `arePositionsEqual` from `src/services/positionManager.ts`.
+- Compute time to close via market discovery service.
+- Decision logic:
+  - Merge path:
+    - conditions: positions are equal, UP size > 0, relayer available, merge not attempted for this condition
+    - action: `SettlementService.mergeEqualPositions(...)`
+    - note: merge attempts are tracked in-memory by condition (`mergeAttemptedMarkets`) and are not retried again in the same process once attempted
+  - Force-sell path:
+    - conditions: positions are not equal and time to close <= `FORCE_SELL_THRESHOLD_SECONDS`
+    - action: `TradingEngine.forceSellAll(...)`
 
-##### 2.1: Balance check
+### 4) New entry evaluation
 
-- Check USDC balance
-- If insufficient (< 0.01): stop bot
-- If sufficient: continue
+- Candidate entry market is the discovered next market.
+- If next market has the same condition ID as current market, entry is skipped for this cycle.
+- Required market metadata checks:
+  - token IDs must exist
+  - condition ID must exist
+- Skip if condition already exists in persisted entered state.
 
-##### 2.2: Position monitoring loop
+Exposure guard before placing new paired orders:
 
-Iteration flow:
+- Bot fetches current positions for the candidate condition.
+- If any exposure already exists (UP > 0 or DOWN > 0), bot skips entry.
+- Additional close-to-expiry cleanup from this guard:
+  - if exposure is imbalanced and near close, force-sell is triggered from the entry guard path.
 
-1. Check positions:
-   - Get UP token balance
-   - Get DOWN token balance
-   - Calculate difference
-   - Display all values
-2. Decision tree:
+Balance guard before placing new paired orders:
 
-   Path A: Positions are equal (within 0.01 tolerance)
-   - Merge tokens:
-     - Get minimum of UP/DOWN balances
-     - Call `merge_tokens()` with min position
-     - If success:
-       - Find next epoch market
-       - Place limit orders for next market (ORDER_PRICE, ORDER_SIZE)
-       - Return to main loop
-     - If fail:
-       - Wait 60s
-       - Retry merge
+- Required USDC = `ORDER_PRICE * ORDER_SIZE * 2`
+- If balance is insufficient, entry is skipped for this cycle.
 
-   Path B: Positions are not equal
-   - Check time until market close:
-     - If ≤ 30 seconds:
-       - Force sell all positions (market orders)
-       - Find next epoch market
-       - Place limit orders for next market
-       - Return to main loop
-     - If > 30 seconds:
-       - Wait 60s
-       - Recheck positions (loop back)
+If all guards pass:
 
-#### Step 3: Transition to next market
+- Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
+- Persist condition ID in entered market state (`STATE_FILE_PATH`).
+- Sleep `POSITION_RECHECK_SECONDS`.
 
-- Wait 10s
-- Increment market count
-- Loop back to Step 1
+### 5) Loop error handling and retry behavior
 
-## Key functions and their roles
+- Loop body is wrapped in `try/catch`.
+- Any loop-level error is logged; process continues after sleeping `LOOP_SLEEP_SECONDS`.
+- HTTP/API call retries use configurable retry settings:
+  - `REQUEST_RETRIES`
+  - `REQUEST_RETRY_BACKOFF_MS`
+  - `REQUEST_TIMEOUT_MS`
 
-| Function                          | Purpose                                                    |
-| --------------------------------- | ---------------------------------------------------------- |
-| `check_balance_sufficient()`      | Validates USDC balance before trading                      |
-| `are_positions_equal()`           | Checks if UP/DOWN positions are balanced (tolerance: 0.01) |
-| `get_min_position()`              | Gets minimum of UP/DOWN for merging                        |
-| `is_near_market_close()`          | Checks if market closes within 30s                         |
-| `process_market()`                | Main market processing logic                               |
-| `bot.merge_tokens()`              | Merges equal UP/DOWN tokens to get USDC back               |
-| `bot.force_sell_all()`            | Sells all positions using market orders                    |
-| `bot.find_next_active_market()`   | Finds the next epoch market                                |
-| `bot.place_limit_order_up/down()` | Places limit orders for next market                        |
+## Safety model
 
-## Environment variables
+- `DRY_RUN=true` (default):
+  - CLOB write operations return dry-run intents instead of posting orders/cancels.
+  - Relayer write operations return dry-run intents instead of broadcasting transactions.
+- `DRY_RUN=false`: executes live writes.
 
-```bash
-# Required
-PRIVATE_KEY=0x...              # Your wallet private key
+## Relayer and settlement behavior
 
-# Optional (with defaults)
-HOST=https://clob.polymarket.com
-ORDER_PRICE=0.46               # Price for limit orders
-ORDER_SIZE=5.0                 # Size for limit orders
-FUNDER=                        # Optional funder address
-CHAIN_ID=                      # Optional chain ID
-SIGNATURE_TYPE=                # Optional signature type
-```
+- Relayer client is enabled only when both are set:
+  - `POLYMARKET_RELAYER_URL`
+  - `POLYGON_RPC`
+- Optional builder auth modes:
+  - Local credentials (`BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE`) must be fully provided as a set.
+  - Remote signer (`BUILDER_SIGNER_URL`, optional `BUILDER_SIGNER_TOKEN`).
+- Active loop uses merge (`mergeEqualPositions`) when conditions are met.
+- Redeem capability exists in client/service (`redeemPositions` / `redeemResolvedPositions`) but is not called in the current main bot loop.
 
-## Decision points
+## State persistence
 
-1. Balance check: insufficient → stop bot
-2. Position equality: equal → merge path
-3. Position inequality: check time to close
-4. Time to close: ≤30s → force sell; >30s → wait and recheck
-5. Merge success: place orders for next market
-6. Force sell: place orders for next market
+- Entered market condition IDs are persisted in `STATE_FILE_PATH`.
+- On startup, state is reloaded to avoid duplicate paired entries after restart.
 
-## Error handling
+## Notes on behavior differences from older docs
 
-- Market not found: wait 30s, retry
-- Token IDs not found: wait 30s, retry
-- Merge failed: wait 60s, retry
-- Order placement failed: log warning, continue
-- Insufficient balance: stop bot
-- Keyboard interrupt (Ctrl+C): graceful shutdown
-
-## Expected behavior
-
-1. Continuous operation across 5-minute market epochs
-2. Automatic position management (merge when equal, sell before close)
-3. Proactive order placement for the next market
-4. Risk management (balance checks, force sell before close)
-5. Resilient to temporary failures (retries, continues on errors)
-
-## Timeline example
-
-```
-00:00 - Market #1 starts
-00:00 - Check balance ✅
-00:00 - Check positions (UP: 0, DOWN: 0)
-00:01 - Wait 60s...
-00:02 - Check positions (UP: 5.0, DOWN: 4.8) - Not equal
-00:03 - Wait 60s...
-...
-04:30 - Check positions (UP: 5.0, DOWN: 5.0) - Equal!
-04:30 - Merge tokens ✅
-04:30 - Place orders for Market #2
-04:30 - Return to main loop
-04:30 - Wait 10s
-04:40 - Market #2 starts (orders already placed)
-...
-```
-
-This bot runs continuously, managing positions and placing orders for the next market automatically.
+- No hard process stop on low USDC; entry is skipped and loop continues.
+- Sleep durations are config-driven (`LOOP_SLEEP_SECONDS`, `POSITION_RECHECK_SECONDS`), not fixed constants in docs.
+- Current implementation uses one global cycle with guard checks, not a separate nested perpetual per-market monitor loop.

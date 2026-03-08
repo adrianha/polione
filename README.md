@@ -2,12 +2,20 @@
 
 TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mode defaults.
 
-## Current Status
+## What it does
 
-- TypeScript implementation lives in `src/`
-- Bot defaults to safe mode (`DRY_RUN=true`)
+- Discovers the current and next BTC 5-minute market epochs.
+- Places paired limit BUY orders (UP and DOWN) on eligible next markets.
+- Monitors entered current markets and manages open exposure.
+- Merges equal UP/DOWN positions through the relayer when available.
+- Force-sells imbalanced positions near market close.
 
-## Quick Start (TypeScript)
+## Run modes
+
+- `DRY_RUN=true` (default): simulates CLOB and relayer writes and logs intent payloads.
+- `DRY_RUN=false`: enables live order placement and relayer transactions.
+
+## Quick start
 
 1. Install dependencies:
 
@@ -21,54 +29,83 @@ bun install
 cp .env.example .env
 ```
 
-3. Start bot in safe mode (default):
+3. Start in safe mode (default):
+
+```bash
+bun run dev
+```
+
+4. Optional PM2 process start:
 
 ```bash
 bun run bot
 ```
 
-## Safety Model
-
-- `DRY_RUN=true` means order and relayer writes are simulated only
-- `DRY_RUN=false` enables live execution
-
 ## Scripts
 
-- `bun run bot` - run once in normal mode
-- `bun run dev` - run with watch mode
-- `bun run typecheck` - TypeScript type checks
-- `bun run test` - run test suite
-- `bun run build` - compile to `dist/`
+- `bun run dev` - run `src/main.ts` in watch mode.
+- `bun run bot` - start PM2 using `pm2.config.js`.
+- `bun run build` - compile TypeScript to `dist/`.
+- `bun run typecheck` - run TypeScript checks without emit.
+- `bun run test` - run tests with Vitest.
+- `bun run fmt` - format code with `oxfmt`.
+- `bun run fmt:check` - check formatting with `oxfmt --check`.
 
-## Core TypeScript Modules
+## Implementation map
 
 - Entry point: `src/main.ts`
-- Orchestration loop: `src/bot.ts`
-- Env validation: `src/config/env.ts`
+- Main orchestration loop: `src/bot.ts`
+- Env parsing and validation: `src/config/env.ts`
 - CLOB adapter: `src/clients/clobClient.ts`
 - Relayer adapter: `src/clients/relayerClient.ts`
-- Gamma + data API clients: `src/clients/gammaClient.ts`, `src/clients/dataClient.ts`
-- Market logic: `src/services/marketDiscovery.ts`
-- Position logic: `src/services/positionManager.ts`
-- Trading + settlement: `src/services/tradingEngine.ts`, `src/services/settlement.ts`
+- Market + positions APIs: `src/clients/gammaClient.ts`, `src/clients/dataClient.ts`
+- Services: `src/services/marketDiscovery.ts`, `src/services/positionManager.ts`, `src/services/tradingEngine.ts`, `src/services/settlement.ts`
+- State persistence: `src/utils/stateStore.ts`
 
 ## Configuration
 
-Use `.env.example` for all supported variables. Key values:
+Use `.env.example` as the source of truth for supported variables.
 
-- `PRIVATE_KEY` (required)
-- `CHAIN_ID` (`137` or `80002`)
-- `CLOB_API_HOST`, `GAMMA_API_BASE_URL`, `DATA_API_BASE_URL`
-- `ORDER_PRICE`, `ORDER_SIZE`
-- `FORCE_SELL_THRESHOLD_SECONDS`, `POSITION_EQUALITY_TOLERANCE`
-- `STATE_FILE_PATH` (persist one-pair-per-market state across restarts)
-- `FUNDER` (optional; used as positions address when set)
-- Optional relayer: `POLYMARKET_RELAYER_URL`, `POLYGON_RPC`
-- Optional builder headers for relayer auth:
-  - local: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE`
-  - remote signer: `BUILDER_SIGNER_URL`, `BUILDER_SIGNER_TOKEN`
-  - remote signer contract: accepts `{ method, path, body, timestamp? }` and returns `POLY_BUILDER_API_KEY`, `POLY_BUILDER_TIMESTAMP`, `POLY_BUILDER_PASSPHRASE`, `POLY_BUILDER_SIGNATURE`
+Required:
+
+- `PRIVATE_KEY`
+
+Common defaults:
+
+- `DRY_RUN=true`
+- `CHAIN_ID=137`
+- `CLOB_API_HOST=https://clob.polymarket.com`
+- `GAMMA_API_BASE_URL=https://gamma-api.polymarket.com`
+- `DATA_API_BASE_URL=https://data-api.polymarket.com`
+- `MARKET_SLUG_PREFIX=btc-updown-5m`
+- `MARKET_INTERVAL_SECONDS=300`
+- `ORDER_PRICE=0.46`
+- `ORDER_SIZE=5`
+- `POSITION_EQUALITY_TOLERANCE=0.01`
+- `FORCE_SELL_THRESHOLD_SECONDS=30`
+- `LOOP_SLEEP_SECONDS=10`
+- `POSITION_RECHECK_SECONDS=60`
+- `REQUEST_TIMEOUT_MS=30000`
+- `REQUEST_RETRIES=3`
+- `REQUEST_RETRY_BACKOFF_MS=500`
+- `STATE_FILE_PATH=.bot-state.json`
+
+Optional:
+
+- `FUNDER` (when set, used as the positions address instead of signer address)
+- `POLYMARKET_RELAYER_URL`, `POLYGON_RPC` (both required to enable relayer)
+
+Optional relayer builder auth:
+
+- Local creds: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE` (must all be set together)
+- Remote signer: `BUILDER_SIGNER_URL` (+ optional `BUILDER_SIGNER_TOKEN`)
+
+## Safety and state
+
+- Dry run returns intents for all write operations (CLOB + relayer).
+- Entered market condition IDs are persisted to `STATE_FILE_PATH`.
+- Persisted state prevents multiple paired entries into the same condition across restarts.
 
 ## Workflow
 
-Detailed roadmap and intended strategy are documented in `WORKFLOW.md`.
+The implementation-accurate runtime flow is documented in `WORKFLOW.md`.
