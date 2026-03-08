@@ -133,28 +133,29 @@ export class PolymarketBot {
     }
   }
 
-  private getDistinctEntryMarket(params: {
+  private selectEntryMarket(params: {
+    currentMarket: { slug?: string; conditionId?: string; condition_id?: string } | null;
     nextMarket: { slug?: string; conditionId?: string; condition_id?: string } | null;
     currentConditionId: string | null;
   }): { slug?: string; conditionId?: string; condition_id?: string } | null {
-    const { nextMarket, currentConditionId } = params;
-    if (!nextMarket || !currentConditionId) {
-      return nextMarket;
+    const { currentMarket, nextMarket, currentConditionId } = params;
+
+    if (nextMarket) {
+      const nextConditionId = this.marketDiscovery.getConditionId(nextMarket);
+      if (!currentConditionId || nextConditionId !== currentConditionId) {
+        return nextMarket;
+      }
     }
 
-    const entryConditionId = this.marketDiscovery.getConditionId(nextMarket);
-    if (entryConditionId === currentConditionId) {
-      return null;
-    }
-
-    return nextMarket;
+    return currentMarket;
   }
 
   private async processEntryMarket(params: {
     entryMarket: { slug?: string; conditionId?: string; condition_id?: string; clobTokenIds?: unknown; tokens?: unknown };
+    currentConditionId: string | null;
     positionsAddress: string;
   }): Promise<number> {
-    const { entryMarket, positionsAddress } = params;
+    const { entryMarket, currentConditionId, positionsAddress } = params;
 
     const entryTokenIds = this.marketDiscovery.getTokenIds(entryMarket);
     if (!entryTokenIds) {
@@ -202,6 +203,23 @@ export class PolymarketBot {
         },
         "Skipped new entry: insufficient USDC balance for both legs",
       );
+      return this.config.loopSleepSeconds;
+    }
+
+    const isCurrentMarketEntry = currentConditionId !== null && entryConditionId === currentConditionId;
+
+    if (!isCurrentMarketEntry) {
+      const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice);
+      this.logger.info(
+        {
+          paired,
+          conditionId: entryConditionId,
+          entryPrice,
+        },
+        "Placed paired limit buy orders for non-current market; reconciliation deferred",
+      );
+      await this.markEnteredMarket(entryConditionId);
       return this.config.loopSleepSeconds;
     }
 
@@ -318,18 +336,20 @@ export class PolymarketBot {
       });
     }
 
-    const entryMarket = this.getDistinctEntryMarket({
+    const entryMarket = this.selectEntryMarket({
+      currentMarket,
       nextMarket,
       currentConditionId,
     });
 
     if (!entryMarket) {
-      this.logger.info("No distinct next market available for new entry");
+      this.logger.info("No market available for new entry");
       return this.config.loopSleepSeconds;
     }
 
     return this.processEntryMarket({
       entryMarket,
+      currentConditionId,
       positionsAddress,
     });
   }
