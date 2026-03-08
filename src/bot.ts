@@ -212,36 +212,19 @@ export class PolymarketBot {
 
     if (!isCurrentMarketEntry) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
-      const liquidity = await this.tradingEngine.evaluateLiquidityForEntry(entryTokenIds, entryPrice);
-      if (!liquidity.allowed) {
-        this.logger.warn(
-          {
-            conditionId: entryConditionId,
-            entryPrice,
-            reason: liquidity.reason,
-            upSpread: liquidity.upSpread,
-            downSpread: liquidity.downSpread,
-            upDepth: liquidity.upDepth,
-            downDepth: liquidity.downDepth,
-          },
-          "Skipped entry due to liquidity/spread gate",
-        );
-        return this.config.loopSleepSeconds;
-      }
-
-      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice, liquidity.orderSize);
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
+        entryTokenIds,
+        entryPrice,
+        this.config.orderSize,
+      );
       this.logger.info(
         {
           paired,
           conditionId: entryConditionId,
           entryPrice,
-          orderSize: liquidity.orderSize,
-          upSpread: liquidity.upSpread,
-          downSpread: liquidity.downSpread,
-          upDepth: liquidity.upDepth,
-          downDepth: liquidity.downDepth,
+          orderSize: this.config.orderSize,
         },
-        "Placed paired limit buy orders for non-current market; reconciliation deferred",
+        "Placed paired limit buy orders for non-current market; liquidity gate bypassed",
       );
       await this.markEnteredMarket(entryConditionId);
       return this.config.loopSleepSeconds;

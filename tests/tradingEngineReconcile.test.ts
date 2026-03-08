@@ -191,6 +191,26 @@ describe("trading engine entry reconciliation", () => {
     expect(result.reason).toContain("Spread too wide");
   });
 
+  it("does not reject solely on invalid top spread sentinel", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [],
+        asks: [{ price: "0.45", size: "10" }],
+      }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    const result = await engine.evaluateLiquidityForEntry(tokenIds, 0.45);
+    expect(result.allowed).toBe(true);
+    expect(result.orderSize).toBe(5);
+  });
+
   it("adapts order size from depth and usage ratio", async () => {
     const clobClient = {
       getOrderBook: async (tokenId: string) => {

@@ -106,8 +106,12 @@ export class TradingEngine {
 
     const upTop = this.getBestBidAsk(upBook);
     const downTop = this.getBestBidAsk(downBook);
+    const upInvalidTop = !Number.isFinite(upTop.spread);
+    const downInvalidTop = !Number.isFinite(downTop.spread);
+    const upTopTooWide = !upInvalidTop && upTop.spread > this.config.entryMaxSpread;
+    const downTopTooWide = !downInvalidTop && downTop.spread > this.config.entryMaxSpread;
 
-    if (upTop.spread > this.config.entryMaxSpread || downTop.spread > this.config.entryMaxSpread) {
+    if (upTopTooWide || downTopTooWide) {
       return {
         allowed: false,
         orderSize: 0,
