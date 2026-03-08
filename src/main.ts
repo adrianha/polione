@@ -18,7 +18,6 @@ const start = async (): Promise<void> => {
   const shutdown = (): void => {
     logger.warn("Shutdown signal received");
     bot.stop();
-    process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
