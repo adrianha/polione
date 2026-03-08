@@ -228,6 +228,22 @@ export class PolymarketBot {
           continue;
         }
 
+        const requiredUsdcForBothLegs = this.config.orderPrice * this.config.orderSize * 2;
+        const currentUsdcBalance = await this.clobClient.getUsdcBalance();
+        if (currentUsdcBalance < requiredUsdcForBothLegs) {
+          this.logger.warn(
+            {
+              conditionId: entryConditionId,
+              slug: entryMarket.slug,
+              usdcBalance: currentUsdcBalance,
+              requiredUsdc: requiredUsdcForBothLegs
+            },
+            "Skipped new entry: insufficient USDC balance for both legs"
+          );
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
         const paired = await this.tradingEngine.placePairedLimitBuys(entryTokenIds);
         await this.markEnteredMarket(entryConditionId);
         this.logger.info({ paired, conditionId: entryConditionId }, "Placed paired limit buy orders");

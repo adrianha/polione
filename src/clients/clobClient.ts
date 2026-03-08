@@ -1,4 +1,5 @@
 import {
+  AssetType,
   Chain,
   ClobClient,
   OrderType,
@@ -179,5 +180,16 @@ export class PolyClobClient {
 
   async getOpenOrders(): Promise<OpenOrdersResponse> {
     return this.client.getOpenOrders();
+  }
+
+  async getUsdcBalance(): Promise<number> {
+    const response = await this.client.getBalanceAllowance({
+      asset_type: AssetType.COLLATERAL
+    });
+    const parsed = Number(response.balance);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`Invalid balance response: ${response.balance}`);
+    }
+    return parsed;
   }
 }
