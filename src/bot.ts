@@ -976,6 +976,17 @@ export class PolymarketBot {
       this.entryLoop(positionsAddress),
     ]);
 
+    await this.notify({
+      title: "Bot stopped",
+      severity: "warn",
+      dedupeKey: `bot-stop:${Math.floor(Date.now() / 60000)}`,
+      details: [
+        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+        { key: "enteredMarketCount", value: this.enteredMarkets.size },
+        { key: "stateFilePath", value: this.config.stateFilePath },
+      ],
+    });
+
     this.logger.info("Bot stopped");
   }
 }
