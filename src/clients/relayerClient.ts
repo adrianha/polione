@@ -8,7 +8,13 @@ import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { encodeFunctionData, type Hex, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon, polygonAmoy } from "viem/chains";
-import type { BotConfig, TradeIntent } from "../types/domain.js";
+import type {
+  BotConfig,
+  RelayerDryRunResult,
+  RelayerExecutionMeta,
+  RelayerSkippedResult,
+  TradeIntent,
+} from "../types/domain.js";
 
 const CTF_EXCHANGE_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
@@ -42,6 +48,18 @@ const ctfAbi = [
   },
 ] as const;
 
+interface BuilderEntry {
+  label: string;
+  relayClient: RelayClient;
+  rateLimitedUntilMs: number | null;
+}
+
+type RelayerSuccessResponse = RelayerTransactionResponse & { meta: RelayerExecutionMeta };
+
+type RelayerExecutableResult = RelayerSuccessResponse | RelayerSkippedResult | null;
+
+export type RelayerOperationResult = RelayerExecutableResult | RelayerDryRunResult;
+
 const normalizeBytes32 = (value: string): Hex => {
   const hex = value.toLowerCase().startsWith("0x") ? value : `0x${value}`;
   if (!/^0x[a-f0-9]{64}$/i.test(hex)) {
@@ -51,10 +69,8 @@ const normalizeBytes32 = (value: string): Hex => {
 };
 
 export class PolyRelayerClient {
-  private readonly relayClient?: RelayClient;
-  private readonly builderConfig?: BuilderConfig;
+  private readonly builderEntries: BuilderEntry[] = [];
   private readonly enabled: boolean;
-  private rateLimitedUntilMs: number | null = null;
 
   constructor(private readonly config: BotConfig) {
     this.enabled = Boolean(config.polymarketRelayerUrl && config.polygonRpc);
@@ -69,64 +85,106 @@ export class PolyRelayerClient {
       transport: http(config.polygonRpc),
     });
 
-    this.builderConfig = this.createBuilderConfig(config);
+    const builderConfigs = this.createBuilderConfigs(config);
+    if (builderConfigs.length === 0) {
+      this.builderEntries.push({
+        label: "builder1",
+        relayClient: new RelayClient(
+          config.polymarketRelayerUrl!,
+          config.chainId,
+          walletClient,
+          undefined,
+          RelayerTxType.PROXY,
+        ),
+        rateLimitedUntilMs: null,
+      });
+      return;
+    }
 
-    this.relayClient = new RelayClient(
-      config.polymarketRelayerUrl!,
-      config.chainId,
-      walletClient,
-      this.builderConfig,
-      RelayerTxType.PROXY,
+    this.builderEntries.push(
+      ...builderConfigs.map((builderConfig) => ({
+        label: builderConfig.label,
+        relayClient: new RelayClient(
+          config.polymarketRelayerUrl!,
+          config.chainId,
+          walletClient,
+          builderConfig.config,
+          RelayerTxType.PROXY,
+        ),
+        rateLimitedUntilMs: null,
+      })),
     );
   }
 
-  private createBuilderConfig(config: BotConfig): BuilderConfig | undefined {
-    const hasLocalCreds =
-      Boolean(config.builderApiKey) && Boolean(config.builderApiSecret) && Boolean(config.builderApiPassphrase);
-
+  private createBuilderConfigs(config: BotConfig): Array<{ label: string; config: BuilderConfig }> {
     const hasRemoteSigner = Boolean(config.builderSignerUrl);
+    const localConfigs = this.createLocalBuilderConfigs(config);
 
-    if (!hasLocalCreds && !hasRemoteSigner) {
-      return undefined;
+    if (localConfigs.length > 0) {
+      return localConfigs;
     }
 
-    const hasPartialLocalCreds =
-      Boolean(config.builderApiKey) || Boolean(config.builderApiSecret) || Boolean(config.builderApiPassphrase);
-
-    if (!hasLocalCreds && hasPartialLocalCreds) {
-      throw new Error(
-        "Invalid builder configuration: BUILDER_API_KEY, BUILDER_API_SECRET, and BUILDER_API_PASSPHRASE must all be set",
-      );
+    if (!hasRemoteSigner) {
+      return [];
     }
 
-    if (hasLocalCreds) {
-      return new BuilderConfig({
-        localBuilderCreds: {
-          key: config.builderApiKey!,
-          secret: config.builderApiSecret!,
-          passphrase: config.builderApiPassphrase!,
-        },
-      });
-    }
-
-    return new BuilderConfig({
-      remoteBuilderConfig: {
-        url: config.builderSignerUrl!,
-        token: config.builderSignerToken,
+    return [
+      {
+        label: "builder1",
+        config: new BuilderConfig({
+          remoteBuilderConfig: {
+            url: config.builderSignerUrl!,
+            token: config.builderSignerToken,
+          },
+        }),
       },
-    });
+    ];
+  }
+
+  private createLocalBuilderConfigs(config: BotConfig): Array<{ label: string; config: BuilderConfig }> {
+    const localCreds = [
+      {
+        label: "builder1",
+        key: config.builderApiKey,
+        secret: config.builderApiSecret,
+        passphrase: config.builderApiPassphrase,
+      },
+      {
+        label: "builder2",
+        key: config.builderApiKey2,
+        secret: config.builderApiSecret2,
+        passphrase: config.builderApiPassphrase2,
+      },
+    ];
+
+    return localCreds
+      .filter((entry) => Boolean(entry.key) && Boolean(entry.secret) && Boolean(entry.passphrase))
+      .map((entry) => ({
+        label: entry.label,
+        config: new BuilderConfig({
+          localBuilderCreds: {
+            key: entry.key!,
+            secret: entry.secret!,
+            passphrase: entry.passphrase!,
+          },
+        }),
+      }));
   }
 
   isAvailable(): boolean {
-    return this.enabled && Boolean(this.relayClient);
+    return this.enabled && this.builderEntries.length > 0;
   }
 
-  getRateLimitedUntilMs(): number | null {
-    return this.rateLimitedUntilMs;
+  getAvailableBuilderLabels(): string[] {
+    if (!this.isAvailable()) {
+      return [];
+    }
+
+    return this.builderEntries.filter((entry) => !this.isRateLimitedNow(entry)).map((entry) => entry.label);
   }
 
-  private isRateLimitedNow(): boolean {
-    return this.rateLimitedUntilMs !== null && Date.now() < this.rateLimitedUntilMs;
+  private isRateLimitedNow(entry: BuilderEntry): boolean {
+    return entry.rateLimitedUntilMs !== null && Date.now() < entry.rateLimitedUntilMs;
   }
 
   private parseResetSeconds(message: string): number | null {
@@ -150,49 +208,76 @@ export class PolyRelayerClient {
     return String(error);
   }
 
-  private updateRateLimitFromError(error: unknown): void {
+  private isConfirmedRateLimitError(error: unknown): boolean {
     const message = this.formatError(error);
-    const has429 = /\b429\b/.test(message) || /too many requests/i.test(message) || /quota exceeded/i.test(message);
-    if (!has429) {
+    return /\b429\b/.test(message) || /too many requests/i.test(message) || /quota exceeded/i.test(message);
+  }
+
+  private updateRateLimitFromError(entry: BuilderEntry, error: unknown): void {
+    if (!this.isConfirmedRateLimitError(error)) {
       return;
     }
 
+    const message = this.formatError(error);
     const resetSeconds = this.parseResetSeconds(message);
     const fallbackSeconds = 60;
     const waitSeconds = resetSeconds ?? fallbackSeconds;
-    this.rateLimitedUntilMs = Date.now() + waitSeconds * 1000;
+    entry.rateLimitedUntilMs = Date.now() + waitSeconds * 1000;
   }
 
-  private async executeWithRateLimitGuard(
-    txs: Transaction[],
-    note: string,
-  ): Promise<RelayerTransactionResponse | { skipped: true; reason: string; retryAt: number | null } | null> {
+  private getRetryAt(): number | null {
+    const futureRetryAts = this.builderEntries
+      .map((entry) => entry.rateLimitedUntilMs)
+      .filter((value): value is number => value !== null && value > Date.now());
+
+    if (futureRetryAts.length === 0) {
+      return null;
+    }
+
+    return Math.min(...futureRetryAts);
+  }
+
+  private withMeta<T extends RelayerTransactionResponse>(result: T, meta: RelayerExecutionMeta): T & { meta: RelayerExecutionMeta } {
+    return Object.assign(result, { meta });
+  }
+
+  private async executeWithFailover(txs: Transaction[], note: string): Promise<RelayerExecutableResult> {
     if (!this.isAvailable()) {
       return null;
     }
 
-    if (this.isRateLimitedNow()) {
-      return {
-        skipped: true,
-        reason: "relayer_rate_limited",
-        retryAt: this.rateLimitedUntilMs,
-      };
+    let lastRateLimitedBuilder: string | null = null;
+
+    for (const entry of this.builderEntries) {
+      if (this.isRateLimitedNow(entry)) {
+        continue;
+      }
+
+      try {
+        const result = await entry.relayClient.execute(txs, note);
+        entry.rateLimitedUntilMs = null;
+        return this.withMeta(result, {
+          builderLabel: entry.label,
+          failoverFrom: lastRateLimitedBuilder ?? undefined,
+        });
+      } catch (error) {
+        if (!this.isConfirmedRateLimitError(error)) {
+          throw error;
+        }
+
+        this.updateRateLimitFromError(entry, error);
+        lastRateLimitedBuilder ??= entry.label;
+      }
     }
 
-    try {
-      return await this.relayClient!.execute(txs, note);
-    } catch (error) {
-      this.updateRateLimitFromError(error);
-      throw error;
-    }
+    return {
+      skipped: true,
+      reason: "relayer_rate_limited",
+      retryAt: this.getRetryAt(),
+    };
   }
 
-  async mergeTokens(
-    conditionId: string,
-    amount: bigint,
-  ): Promise<
-    RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | { skipped: true; reason: string; retryAt: number | null } | null
-  > {
+  async mergeTokens(conditionId: string, amount: bigint): Promise<RelayerOperationResult> {
     if (!this.isAvailable()) {
       return null;
     }
@@ -211,6 +296,7 @@ export class PolyRelayerClient {
     };
 
     if (this.config.dryRun) {
+      const availableEntry = this.builderEntries.find((entry) => !this.isRateLimitedNow(entry));
       return {
         dryRun: true,
         intent: {
@@ -221,18 +307,18 @@ export class PolyRelayerClient {
             to: CTF_EXCHANGE_ADDRESS,
           },
         },
+        meta: availableEntry
+          ? {
+              builderLabel: availableEntry.label,
+            }
+          : undefined,
       };
     }
 
-    return this.executeWithRateLimitGuard([tx], "merge tokens");
+    return this.executeWithFailover([tx], "merge tokens");
   }
 
-  async redeemPositions(
-    conditionId: string,
-    indexSets: bigint[] = [1n, 2n],
-  ): Promise<
-    RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | { skipped: true; reason: string; retryAt: number | null } | null
-  > {
+  async redeemPositions(conditionId: string, indexSets: bigint[] = [1n, 2n]): Promise<RelayerOperationResult> {
     if (!this.isAvailable()) {
       return null;
     }
@@ -251,6 +337,7 @@ export class PolyRelayerClient {
     };
 
     if (this.config.dryRun) {
+      const availableEntry = this.builderEntries.find((entry) => !this.isRateLimitedNow(entry));
       return {
         dryRun: true,
         intent: {
@@ -261,9 +348,14 @@ export class PolyRelayerClient {
             to: CTF_EXCHANGE_ADDRESS,
           },
         },
+        meta: availableEntry
+          ? {
+              builderLabel: availableEntry.label,
+            }
+          : undefined,
       };
     }
 
-    return this.executeWithRateLimitGuard([tx], "redeem positions");
+    return this.executeWithFailover([tx], "redeem positions");
   }
 }

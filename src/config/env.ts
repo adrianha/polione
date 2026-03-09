@@ -36,6 +36,9 @@ const schema = z.object({
   BUILDER_API_KEY: z.string().optional(),
   BUILDER_API_SECRET: z.string().optional(),
   BUILDER_API_PASSPHRASE: z.string().optional(),
+  BUILDER_API_KEY_2: z.string().optional(),
+  BUILDER_API_SECRET_2: z.string().optional(),
+  BUILDER_API_PASSPHRASE_2: z.string().optional(),
   BUILDER_SIGNER_URL: z.string().url().optional(),
   BUILDER_SIGNER_TOKEN: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
@@ -67,8 +70,36 @@ const schema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 
+const assertCompleteBuilderCreds = (
+  label: string,
+  creds: {
+    key?: string;
+    secret?: string;
+    passphrase?: string;
+  },
+): void => {
+  const hasAll = Boolean(creds.key) && Boolean(creds.secret) && Boolean(creds.passphrase);
+  const hasAny = Boolean(creds.key) || Boolean(creds.secret) || Boolean(creds.passphrase);
+
+  if (hasAny && !hasAll) {
+    throw new Error(`Invalid ${label} configuration: key, secret, and passphrase must all be set`);
+  }
+};
+
 export const loadConfig = (): BotConfig => {
   const parsed = schema.parse(process.env);
+
+  assertCompleteBuilderCreds("primary builder credentials", {
+    key: parsed.BUILDER_API_KEY,
+    secret: parsed.BUILDER_API_SECRET,
+    passphrase: parsed.BUILDER_API_PASSPHRASE,
+  });
+
+  assertCompleteBuilderCreds("secondary builder credentials", {
+    key: parsed.BUILDER_API_KEY_2,
+    secret: parsed.BUILDER_API_SECRET_2,
+    passphrase: parsed.BUILDER_API_PASSPHRASE_2,
+  });
 
   return {
     dryRun: parsed.DRY_RUN,
@@ -88,6 +119,9 @@ export const loadConfig = (): BotConfig => {
     builderApiKey: parsed.BUILDER_API_KEY,
     builderApiSecret: parsed.BUILDER_API_SECRET,
     builderApiPassphrase: parsed.BUILDER_API_PASSPHRASE,
+    builderApiKey2: parsed.BUILDER_API_KEY_2,
+    builderApiSecret2: parsed.BUILDER_API_SECRET_2,
+    builderApiPassphrase2: parsed.BUILDER_API_PASSPHRASE_2,
     builderSignerUrl: parsed.BUILDER_SIGNER_URL,
     builderSignerToken: parsed.BUILDER_SIGNER_TOKEN,
     telegramBotToken: parsed.TELEGRAM_BOT_TOKEN,

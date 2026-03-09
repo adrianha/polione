@@ -19,6 +19,7 @@ export class PolymarketBot {
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
   private readonly inFlightConditions = new Set<string>();
+  private relayerFailoverActive = false;
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
@@ -143,6 +144,60 @@ export class PolymarketBot {
         { key: "attempt", value: params.attempt },
         { key: "secondsToClose", value: params.secondsToClose },
         { key: "mode", value: params.mode },
+      ],
+    });
+  }
+
+  private getRelayerMeta(result: unknown): { builderLabel?: string; failoverFrom?: string } | null {
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+
+    const meta = (result as Record<string, unknown>).meta;
+    if (!meta || typeof meta !== "object") {
+      return null;
+    }
+
+    const metaObj = meta as Record<string, unknown>;
+    return {
+      builderLabel: typeof metaObj.builderLabel === "string" ? metaObj.builderLabel : undefined,
+      failoverFrom: typeof metaObj.failoverFrom === "string" ? metaObj.failoverFrom : undefined,
+    };
+  }
+
+  private async maybeNotifyRelayerFailover(params: {
+    merge: unknown;
+    slug?: string;
+    conditionId: string;
+    upTokenId: string;
+    downTokenId: string;
+  }): Promise<void> {
+    const meta = this.getRelayerMeta(params.merge);
+    if (!meta) {
+      return;
+    }
+
+    if (meta.builderLabel === "builder1") {
+      this.relayerFailoverActive = false;
+      return;
+    }
+
+    if (!meta.failoverFrom || this.relayerFailoverActive) {
+      return;
+    }
+
+    this.relayerFailoverActive = true;
+    await this.notify({
+      title: "Relayer failover activated",
+      severity: "warn",
+      dedupeKey: `relayer-failover:${meta.failoverFrom}:${meta.builderLabel}`,
+      slug: params.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.upTokenId,
+      downTokenId: params.downTokenId,
+      details: [
+        { key: "fromBuilder", value: meta.failoverFrom },
+        { key: "toBuilder", value: meta.builderLabel },
       ],
     });
   }
@@ -463,7 +518,7 @@ export class PolymarketBot {
     ) {
       const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
       const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
-      const mergeObj = merge && typeof merge === "object" ? (merge as Record<string, unknown>) : null;
+      const mergeObj = merge && typeof merge === "object" ? (merge as unknown as Record<string, unknown>) : null;
       const isRateLimitedSkip = mergeObj?.skipped === true && mergeObj?.reason === "relayer_rate_limited";
 
       if (isRateLimitedSkip) {
@@ -490,8 +545,25 @@ export class PolymarketBot {
         return;
       }
 
+      const relayerMeta = this.getRelayerMeta(merge);
+      await this.maybeNotifyRelayerFailover({
+        merge,
+        slug: currentMarket.slug,
+        conditionId: currentConditionId,
+        upTokenId: currentTokenIds.upTokenId,
+        downTokenId: currentTokenIds.downTokenId,
+      });
+
       this.mergeAttemptedMarkets.add(currentConditionId);
-      this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
+      this.logger.info(
+        {
+          merge,
+          conditionId: currentConditionId,
+          relayerBuilder: relayerMeta?.builderLabel,
+          relayerFailoverFrom: relayerMeta?.failoverFrom,
+        },
+        "Merge flow executed",
+      );
       await this.notify({
         title: "mergeEqualPositions executed",
         severity: "info",
@@ -503,6 +575,7 @@ export class PolymarketBot {
         details: [
           { key: "amount", value: amount },
           { key: "secondsToClose", value: secondsToClose },
+          { key: "builder", value: relayerMeta?.builderLabel },
         ],
       });
       return;
@@ -1057,6 +1130,7 @@ export class PolymarketBot {
         userAddress,
         positionsAddress,
         relayerEnabled: this.relayerClient.isAvailable(),
+        availableRelayerBuilders: this.relayerClient.getAvailableBuilderLabels(),
         persistedTrackedMarketCount: this.trackedMarkets.size,
         stateFilePath: this.config.stateFilePath,
       },
@@ -1084,6 +1158,7 @@ export class PolymarketBot {
         { key: "entryMaxSpread", value: this.config.entryMaxSpread },
         { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
         { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
+        { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },
       ],
     });
 

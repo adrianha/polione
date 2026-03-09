@@ -114,6 +114,7 @@ Optional:
 Optional relayer builder auth:
 
 - Local creds: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE` (must all be set together)
+- Optional secondary local creds for failover: `BUILDER_API_KEY_2`, `BUILDER_API_SECRET_2`, `BUILDER_API_PASSPHRASE_2` (must all be set together)
 - Remote signer: `BUILDER_SIGNER_URL` (+ optional `BUILDER_SIGNER_TOKEN`)
 
 Optional notifications:
@@ -135,6 +136,7 @@ Optional notifications:
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 - Telegram notifications use rich text with truncated IDs for readability and include market details.
 - Notifications are sent for non-success critical events and first successful paired placement per condition.
+- Relayer failover can switch from primary local builder creds to secondary local builder creds on confirmed rate-limit errors only, and sends a one-time Telegram alert per failover episode.
 
 ## Workflow
 

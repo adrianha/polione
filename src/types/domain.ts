@@ -18,6 +18,9 @@ export interface BotConfig {
   builderApiKey?: string;
   builderApiSecret?: string;
   builderApiPassphrase?: string;
+  builderApiKey2?: string;
+  builderApiSecret2?: string;
+  builderApiPassphrase2?: string;
   builderSignerUrl?: string;
   builderSignerToken?: string;
   telegramBotToken?: string;
@@ -106,4 +109,21 @@ export interface PositionSummary {
 export interface TradeIntent {
   action: "PLACE_LIMIT" | "PLACE_MARKET" | "CANCEL_ORDER" | "MERGE" | "REDEEM";
   payload: Record<string, unknown>;
+}
+
+export interface RelayerExecutionMeta {
+  builderLabel: string;
+  failoverFrom?: string;
+}
+
+export interface RelayerSkippedResult {
+  skipped: true;
+  reason: string;
+  retryAt: number | null;
+}
+
+export interface RelayerDryRunResult {
+  dryRun: true;
+  intent: TradeIntent;
+  meta?: RelayerExecutionMeta;
 }
