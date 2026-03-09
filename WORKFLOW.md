@@ -28,7 +28,7 @@ MAIN LOOP (until stop signal)
   |
   +--> If no market found: sleep LOOP_SLEEP_SECONDS, continue
   |
-  +--> If current market is an entered market:
+  +--> If current market is a tracked market:
   |      - fetch positions for current condition
   |      - summarize UP/DOWN sizes and difference
   |      - compute equality + seconds to close
@@ -47,10 +47,11 @@ MAIN LOOP (until stop signal)
   |      - sufficient USDC for both legs (ORDER_PRICE * ORDER_SIZE * 2)
   |
   +--> Place paired limit buys (UP + DOWN)
-  |      - reconcile fills for ENTRY_RECONCILE_SECONDS
-  |      - if imbalanced: reprice paired entry (bounded attempts)
-  |      - final attempt fallback: optional cancel open entry orders, flatten exposure
-  |      - if balanced: persist entered condition ID, sleep POSITION_RECHECK_SECONDS
+  |      - next-market entry: persist condition immediately and leave untouched until rollover
+  |      - direct current-market entry: reconcile fills for ENTRY_RECONCILE_SECONDS
+  |      - if direct current-market entry stays imbalanced: reprice paired entry (bounded attempts)
+  |      - final current-market fallback near close: optional profitable hedge, else flatten exposure
+  |      - if balanced: persist tracked condition ID, sleep POSITION_RECHECK_SECONDS
   |
   +--> On skip or loop-level error: sleep LOOP_SLEEP_SECONDS
   |
@@ -80,7 +81,7 @@ MAIN LOOP (until stop signal)
 
 ### 3) Current entered market management
 
-This block runs only when the current market condition is already in the entered set.
+This block runs only when the current market condition is already in the tracked set.
 
 - Fetch positions via `src/clients/dataClient.ts` for current condition.
 - Summarize with `summarizePositions` and compare with `arePositionsEqual` from `src/services/positionManager.ts`.
@@ -90,13 +91,16 @@ This block runs only when the current market condition is already in the entered
     - conditions: positions are equal, UP size > 0, relayer available, merge not attempted for this condition
     - action: `SettlementService.mergeEqualPositions(...)`
     - note: merge attempts are tracked in-memory by condition (`mergeAttemptedMarkets`) and are not retried again in the same process once attempted
+  - Observe path:
+    - conditions: positions are not equal and time to close is still greater than `FORCE_SELL_THRESHOLD_SECONDS`
+    - action: log only, no cancel/hedge/flatten yet
   - Force-sell path:
     - conditions: positions are not equal and time to close <= `FORCE_SELL_THRESHOLD_SECONDS`
-    - action: `TradingEngine.forceSellAll(...)`
+    - action: evaluate profitable missing-leg hedge first; otherwise cancel open entry orders and flatten
 
 ### 4) New entry evaluation
 
-- Candidate entry market is the discovered next market.
+- Candidate entry market is the discovered next market, with current market as fallback when distinct next market is unavailable.
 - If next market has the same condition ID as current market, entry is skipped for this cycle.
 - Required market metadata checks:
   - token IDs must exist
@@ -115,7 +119,14 @@ Balance guard before placing new paired orders:
 - Required USDC = `ORDER_PRICE * ORDER_SIZE * 2`
 - If balance is insufficient, entry is skipped for this cycle.
 
-If all guards pass:
+If all guards pass for a next-market entry:
+
+- Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
+- Persist condition ID in entered market state (`STATE_FILE_PATH`) immediately.
+- Do not reconcile, reprice, cancel, hedge, or flatten while the market is still next.
+- Recovery is deferred until that condition becomes current and is handled by the current-market management loop.
+
+If all guards pass for a direct current-market entry:
 
 - Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
 - Before each entry attempt, run liquidity gate from order books:

@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import type { BotConfig, MarketRecord } from "./types/domain.js";
+import type { BotConfig, MarketRecord, PositionSummary, TokenIds } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
 import { ClobWsClient } from "./clients/clobWsClient.js";
@@ -221,6 +221,189 @@ export class PolymarketBot {
     };
   }
 
+  private async handleForceWindowImbalance(params: {
+    market: MarketRecord;
+    conditionId: string;
+    positionsAddress: string;
+    tokenIds: TokenIds;
+    summary: PositionSummary;
+    secondsToClose: number | null;
+    entryPrice: number;
+  }): Promise<{ status: "balanced" | "flattened" | "failed" }> {
+    const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } = params;
+    const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
+    const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
+
+    if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
+      const hedgeCheck = this.evaluateForceWindowHedge(entryPrice, bestMissingAsk);
+
+      if (hedgeCheck.isProfitable) {
+        const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
+        const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(summary, tokenIds, hedgeCheck.maxHedgePrice);
+        const postHedgeReconcile = await this.tradingEngine.reconcilePairedEntry({
+          positionsAddress,
+          conditionId,
+          tokenIds,
+          flattenOnImbalance: true,
+          cancelOpenOrders: true,
+        });
+
+        if (postHedgeReconcile.status === "balanced") {
+          this.logger.info(
+            {
+              conditionId,
+              bestMissingAsk,
+              maxHedgePrice: hedgeCheck.maxHedgePrice,
+              expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
+              cancelledOpenOrders,
+              hedgeBuy,
+              summary: postHedgeReconcile.finalSummary,
+              secondsToClose,
+            },
+            "Inside force-sell window: completed missing leg and restored balance",
+          );
+          return { status: "balanced" };
+        }
+
+        if (postHedgeReconcile.status === "flattened") {
+          this.logger.warn(
+            {
+              conditionId,
+              bestMissingAsk,
+              maxHedgePrice: hedgeCheck.maxHedgePrice,
+              expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
+              cancelledOpenOrders,
+              hedgeBuy,
+              flattenResult: postHedgeReconcile.flattenResult,
+              summary: postHedgeReconcile.finalSummary,
+              secondsToClose,
+            },
+            "Inside force-sell window: late hedge remained imbalanced and was flattened",
+          );
+          await this.notify({
+            title: "Force sell executed (post-hedge residual)",
+            severity: "warn",
+            dedupeKey: `post-hedge-force-sell:${conditionId}`,
+            slug: market.slug,
+            conditionId,
+            upTokenId: tokenIds.upTokenId,
+            downTokenId: tokenIds.downTokenId,
+            details: [
+              { key: "bestMissingAsk", value: bestMissingAsk },
+              { key: "maxHedgePrice", value: hedgeCheck.maxHedgePrice },
+              { key: "expectedLockPnlPerShare", value: hedgeCheck.expectedLockPnlPerShare },
+              { key: "up", value: postHedgeReconcile.finalSummary.upSize },
+              { key: "down", value: postHedgeReconcile.finalSummary.downSize },
+              { key: "diff", value: postHedgeReconcile.finalSummary.differenceAbs },
+              { key: "secondsToClose", value: secondsToClose },
+            ],
+          });
+          return { status: "flattened" };
+        }
+
+        this.logger.error(
+          {
+            conditionId,
+            bestMissingAsk,
+            maxHedgePrice: hedgeCheck.maxHedgePrice,
+            expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
+            cancelledOpenOrders,
+            hedgeBuy,
+            reason: postHedgeReconcile.reason,
+            summary: postHedgeReconcile.finalSummary,
+            secondsToClose,
+          },
+          "Inside force-sell window: late hedge recovery failed",
+        );
+        await this.notify({
+          title: "Force-window hedge recovery failed",
+          severity: "error",
+          dedupeKey: `force-window-hedge-failed:${conditionId}`,
+          slug: market.slug,
+          conditionId,
+          upTokenId: tokenIds.upTokenId,
+          downTokenId: tokenIds.downTokenId,
+          details: [
+            { key: "bestMissingAsk", value: bestMissingAsk },
+            { key: "maxHedgePrice", value: hedgeCheck.maxHedgePrice },
+            { key: "expectedLockPnlPerShare", value: hedgeCheck.expectedLockPnlPerShare },
+            { key: "reason", value: postHedgeReconcile.reason },
+            { key: "up", value: postHedgeReconcile.finalSummary.upSize },
+            { key: "down", value: postHedgeReconcile.finalSummary.downSize },
+            { key: "diff", value: postHedgeReconcile.finalSummary.differenceAbs },
+            { key: "secondsToClose", value: secondsToClose },
+          ],
+        });
+        return { status: "failed" };
+      }
+
+      const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
+      const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
+      this.logger.warn(
+        {
+          conditionId,
+          bestMissingAsk,
+          maxHedgePrice: hedgeCheck.maxHedgePrice,
+          expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
+          cancelledOpenOrders,
+          forceSell,
+          summary,
+          secondsToClose,
+        },
+        "Inside force-sell window: hedge not profitable, cancelled open orders and flattened filled position",
+      );
+      await this.notify({
+        title: "Force-window fallback flattened (hedge not profitable)",
+        severity: "warn",
+        dedupeKey: `force-window-flatten:${conditionId}`,
+        slug: market.slug,
+        conditionId,
+        upTokenId: tokenIds.upTokenId,
+        downTokenId: tokenIds.downTokenId,
+        details: [
+          { key: "bestMissingAsk", value: bestMissingAsk },
+          { key: "maxHedgePrice", value: hedgeCheck.maxHedgePrice },
+          { key: "expectedLockPnlPerShare", value: hedgeCheck.expectedLockPnlPerShare },
+          { key: "up", value: summary.upSize },
+          { key: "down", value: summary.downSize },
+          { key: "diff", value: summary.differenceAbs },
+          { key: "secondsToClose", value: secondsToClose },
+        ],
+      });
+      return { status: "flattened" };
+    }
+
+    const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
+    const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
+    this.logger.warn(
+      {
+        conditionId,
+        bestMissingAsk,
+        cancelledOpenOrders,
+        forceSell,
+        summary,
+        secondsToClose,
+      },
+      "Inside force-sell window: missing-leg price unavailable, cancelled open orders and flattened filled position",
+    );
+    await this.notify({
+      title: "Force-window fallback flattened (missing-leg price unavailable)",
+      severity: "warn",
+      dedupeKey: `force-window-missing-price:${conditionId}`,
+      slug: market.slug,
+      conditionId,
+      upTokenId: tokenIds.upTokenId,
+      downTokenId: tokenIds.downTokenId,
+      details: [
+        { key: "up", value: summary.upSize },
+        { key: "down", value: summary.downSize },
+        { key: "diff", value: summary.differenceAbs },
+        { key: "secondsToClose", value: secondsToClose },
+      ],
+    });
+    return { status: "flattened" };
+  }
+
   private async loadPersistedEnteredMarkets(): Promise<void> {
     try {
       const loaded = await this.stateStore.loadEnteredMarkets();
@@ -325,24 +508,42 @@ export class PolymarketBot {
       return;
     }
 
+    if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
+      this.logger.info(
+        {
+          conditionId: currentConditionId,
+          slug: currentMarket.slug,
+          up: currentSummary.upSize,
+          down: currentSummary.downSize,
+          diff: currentSummary.differenceAbs,
+          secondsToClose,
+        },
+        "Observed imbalanced current market outside force-sell window; no action taken",
+      );
+      return;
+    }
+
     if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
-      const forceSell = await this.tradingEngine.forceSellAll(currentSummary, currentTokenIds);
-      this.logger.info({ forceSell, conditionId: currentConditionId }, "Force sell flow executed");
-      await this.notify({
-        title: "Force sell executed",
-        severity: "info",
-        dedupeKey: `force-sell:${currentConditionId}:${Math.floor(Date.now() / 30000)}`,
-        slug: currentMarket.slug,
+      const recovery = await this.handleForceWindowImbalance({
+        market: currentMarket,
         conditionId: currentConditionId,
-        upTokenId: currentTokenIds.upTokenId,
-        downTokenId: currentTokenIds.downTokenId,
-        details: [
-          { key: "up", value: currentSummary.upSize },
-          { key: "down", value: currentSummary.downSize },
-          { key: "diff", value: currentSummary.differenceAbs },
-          { key: "secondsToClose", value: secondsToClose },
-        ],
+        positionsAddress,
+        tokenIds: currentTokenIds,
+        summary: currentSummary,
+        secondsToClose,
+        entryPrice: this.config.orderPrice,
       });
+
+      if (recovery.status === "flattened") {
+        return;
+      }
+
+      if (recovery.status === "balanced") {
+        this.logger.info(
+          { conditionId: currentConditionId, secondsToClose, summary: currentSummary },
+          "Recovered imbalanced current market inside force-sell window",
+        );
+      }
     }
   }
 
@@ -453,6 +654,13 @@ export class PolymarketBot {
         mode: "non-current-market",
       });
       await this.markEnteredMarket(entryConditionId);
+      this.logger.info(
+        {
+          conditionId: entryConditionId,
+          slug: entryMarket.slug,
+        },
+        "Deferred recovery for non-current market until it becomes current",
+      );
       return this.config.loopSleepSeconds;
     }
 
@@ -524,164 +732,21 @@ export class PolymarketBot {
       });
 
       if (isInsideForceSellWindow && isFinalAttempt && reconcile.status === "imbalanced") {
-        const missingLegTokenId =
-          reconcile.finalSummary.upSize > reconcile.finalSummary.downSize
-            ? entryTokenIds.downTokenId
-            : entryTokenIds.upTokenId;
-        const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
+        const recovery = await this.handleForceWindowImbalance({
+          market: entryMarket,
+          conditionId: entryConditionId,
+          positionsAddress,
+          tokenIds: entryTokenIds,
+          summary: reconcile.finalSummary,
+          secondsToClose,
+          entryPrice,
+        });
 
-        if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
-          const hedgeCheck = this.evaluateForceWindowHedge(entryPrice, bestMissingAsk);
-
-          if (hedgeCheck.isProfitable) {
-            const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
-            const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(
-              reconcile.finalSummary,
-              entryTokenIds,
-              hedgeCheck.maxHedgePrice,
-            );
-
-            this.logger.warn(
-              {
-                conditionId: entryConditionId,
-                bestMissingAsk,
-                maxHedgePrice: hedgeCheck.maxHedgePrice,
-                expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
-                cancelledOpenOrders,
-                hedgeBuy,
-                secondsToClose,
-              },
-              "Inside force-sell window: completed missing leg because hedge was profitable",
-            );
-
-            const postHedgeReconcile = await this.tradingEngine.reconcilePairedEntry({
-              positionsAddress,
-              conditionId: entryConditionId,
-              tokenIds: entryTokenIds,
-              flattenOnImbalance: true,
-              cancelOpenOrders: true,
-            });
-
-            if (postHedgeReconcile.status === "balanced") {
-              await this.markEnteredMarket(entryConditionId);
-              this.logger.info(
-                {
-                  conditionId: entryConditionId,
-                  bestMissingAsk,
-                  maxHedgePrice: hedgeCheck.maxHedgePrice,
-                  expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
-                  summary: postHedgeReconcile.finalSummary,
-                },
-                "Late hedge completion produced balanced position",
-              );
-              return this.config.positionRecheckSeconds;
-            }
-
-            this.logger.warn(
-              {
-                conditionId: entryConditionId,
-                bestMissingAsk,
-                maxHedgePrice: hedgeCheck.maxHedgePrice,
-                expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
-                summary: postHedgeReconcile.finalSummary,
-              },
-              "Late hedge completion still imbalanced; flattening residual position",
-            );
-
-            const flattenAfterHedge = await this.tradingEngine.forceSellAll(
-              postHedgeReconcile.finalSummary,
-              entryTokenIds,
-            );
-            this.logger.warn(
-              {
-                conditionId: entryConditionId,
-                flattenAfterHedge,
-                summary: postHedgeReconcile.finalSummary,
-              },
-              "Flattened residual after unsuccessful late hedge completion",
-            );
-            await this.notify({
-              title: "Force sell executed (post-hedge residual)",
-              severity: "warn",
-              dedupeKey: `post-hedge-force-sell:${entryConditionId}`,
-              slug: entryMarket.slug,
-              conditionId: entryConditionId,
-              upTokenId: entryTokenIds.upTokenId,
-              downTokenId: entryTokenIds.downTokenId,
-              details: [
-                { key: "up", value: postHedgeReconcile.finalSummary.upSize },
-                { key: "down", value: postHedgeReconcile.finalSummary.downSize },
-                { key: "diff", value: postHedgeReconcile.finalSummary.differenceAbs },
-                { key: "secondsToClose", value: secondsToClose },
-              ],
-            });
-            return this.config.loopSleepSeconds;
-          }
-
-          const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
-          const forceSell = await this.tradingEngine.forceSellAll(reconcile.finalSummary, entryTokenIds);
-          this.logger.warn(
-            {
-              conditionId: entryConditionId,
-              bestMissingAsk,
-              maxHedgePrice: hedgeCheck.maxHedgePrice,
-              expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
-              cancelledOpenOrders,
-              forceSell,
-              summary: reconcile.finalSummary,
-              secondsToClose,
-            },
-            "Inside force-sell window: hedge not profitable, cancelled open orders and flattened filled position",
-          );
-          await this.notify({
-            title: "Force-window fallback flattened (hedge not profitable)",
-            severity: "warn",
-            dedupeKey: `force-window-flatten:${entryConditionId}`,
-            slug: entryMarket.slug,
-            conditionId: entryConditionId,
-            upTokenId: entryTokenIds.upTokenId,
-            downTokenId: entryTokenIds.downTokenId,
-            details: [
-              { key: "bestMissingAsk", value: bestMissingAsk },
-              { key: "maxHedgePrice", value: hedgeCheck.maxHedgePrice },
-              { key: "expectedLockPnlPerShare", value: hedgeCheck.expectedLockPnlPerShare },
-              { key: "up", value: reconcile.finalSummary.upSize },
-              { key: "down", value: reconcile.finalSummary.downSize },
-              { key: "diff", value: reconcile.finalSummary.differenceAbs },
-              { key: "secondsToClose", value: secondsToClose },
-            ],
-          });
-          return this.config.loopSleepSeconds;
+        if (recovery.status === "balanced") {
+          await this.markEnteredMarket(entryConditionId);
+          return this.config.positionRecheckSeconds;
         }
 
-        const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
-        const forceSell = await this.tradingEngine.forceSellAll(reconcile.finalSummary, entryTokenIds);
-        this.logger.warn(
-          {
-            conditionId: entryConditionId,
-            bestMissingAsk,
-            cancelledOpenOrders,
-            forceSell,
-            summary: reconcile.finalSummary,
-            secondsToClose,
-          },
-          "Inside force-sell window: missing-leg price unavailable, cancelled open orders and flattened filled position",
-        );
-        await this.notify({
-          title: "Force-window fallback flattened (missing-leg price unavailable)",
-          severity: "warn",
-          dedupeKey: `force-window-missing-price:${entryConditionId}`,
-          slug: entryMarket.slug,
-          conditionId: entryConditionId,
-          upTokenId: entryTokenIds.upTokenId,
-          downTokenId: entryTokenIds.downTokenId,
-          details: [
-            { key: "up", value: reconcile.finalSummary.upSize },
-            { key: "down", value: reconcile.finalSummary.downSize },
-            { key: "diff", value: reconcile.finalSummary.differenceAbs },
-            { key: "secondsToClose", value: secondsToClose },
-          ],
-        });
         return this.config.loopSleepSeconds;
       }
 

@@ -126,11 +126,12 @@ Optional notifications:
 - Dry run returns intents for all write operations (CLOB + relayer).
 - Entered market condition IDs are persisted to `STATE_FILE_PATH`.
 - Persisted state prevents multiple paired entries into the same condition across restarts.
-- After paired order placement, the bot runs an entry reconciliation window.
-- If entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
-- When within `FORCE_SELL_THRESHOLD_SECONDS` to market close, repricing is skipped and fallback flatten is prioritized.
-- Inside force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
-- If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
+- Direct current-market entries run an immediate entry reconciliation window.
+- If a direct current-market entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
+- Next-market entries are persisted immediately and left untouched until that market rolls into current.
+- When a tracked market becomes current, `processCurrentEnteredMarket` owns imbalance recovery.
+- Outside `FORCE_SELL_THRESHOLD_SECONDS`, an imbalanced current market is observed only.
+- Inside the force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 - Telegram notifications use rich text with truncated IDs for readability and include market details.
 - Notifications are sent for non-success critical events and first successful paired placement per condition.
