@@ -82,7 +82,7 @@ describe("trading engine entry reconciliation", () => {
     expect(result.finalSummary.downSize).toBe(5);
   });
 
-  it("flattens imbalanced exposure and returns flattened status", async () => {
+  it("returns imbalanced when only one leg fills", async () => {
     const sold: Array<{ tokenId: string; amount: number }> = [];
     const clobClient = {
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [{ cancelled: 1 }],
@@ -106,9 +106,9 @@ describe("trading engine entry reconciliation", () => {
       tokenIds,
     });
 
-    expect(result.status).toBe("flattened");
+    expect(result.status).toBe("imbalanced");
     expect(result.cancelledOpenOrders).toBeDefined();
-    expect(sold).toEqual([{ tokenId: "up-token", amount: 5 }]);
+    expect(sold).toEqual([]);
   });
 
   it("fails reconciliation when no leg fills", async () => {
@@ -140,7 +140,7 @@ describe("trading engine entry reconciliation", () => {
     expect(sold).toEqual([]);
   });
 
-  it("returns imbalanced when flatten is disabled", async () => {
+  it("returns imbalanced with no flatten branch", async () => {
     const sold: Array<{ tokenId: string; amount: number }> = [];
     const clobClient = {
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [{ cancelled: 1 }],
@@ -162,7 +162,6 @@ describe("trading engine entry reconciliation", () => {
       positionsAddress: "0xabc",
       conditionId: "cond",
       tokenIds,
-      flattenOnImbalance: false,
     });
 
     expect(result.status).toBe("imbalanced");

@@ -112,7 +112,6 @@ const createBot = async () => {
     getBestAskPrice: vi.fn(async () => 0.4),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
-    forceSellAll: vi.fn(async () => ({ ok: true })),
   };
   bot.relayerClient = { isAvailable: vi.fn(() => false) };
   bot.settlementService = { mergeEqualPositions: vi.fn(async () => ({ ok: true })) };
@@ -160,7 +159,6 @@ describe("bot lifecycle", () => {
 
       expect(bot.tradingEngine.getBestAskPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.forceSellAll).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

@@ -358,56 +358,12 @@ export class TradingEngine {
     };
   }
 
-  async forceSellAll(
-    summary: { upSize: number; downSize: number },
-    tokenIds: TokenIds,
-  ): Promise<{ up?: unknown; down?: unknown }> {
-    const results: { up?: unknown; down?: unknown } = {};
-
-    const executeChunkedSell = async (tokenId: string, amount: number): Promise<unknown[]> => {
-      const chunks = [amount, amount * 0.5, amount * 0.25, amount * 0.25]
-        .map((value) => Number(value.toFixed(6)))
-        .filter((value) => value > 0);
-      const outcomes: unknown[] = [];
-      for (const chunk of chunks) {
-        try {
-          const res = await this.clobClient.placeMarketOrder({
-            tokenId,
-            side: "SELL",
-            amount: chunk,
-            price: 0.01,
-            orderType: OrderType.FAK,
-          });
-          outcomes.push({ chunk, result: res });
-          if (this.config.dryRun) {
-            break;
-          }
-        } catch (error) {
-          outcomes.push({ chunk, error: error instanceof Error ? error.message : String(error) });
-        }
-      }
-      return outcomes;
-    };
-
-    if (summary.upSize > 0) {
-      results.up = await executeChunkedSell(tokenIds.upTokenId, summary.upSize);
-    }
-
-    if (summary.downSize > 0) {
-      results.down = await executeChunkedSell(tokenIds.downTokenId, summary.downSize);
-    }
-
-    return results;
-  }
-
   async reconcilePairedEntry(params: {
     positionsAddress: string;
     conditionId: string;
     tokenIds: TokenIds;
-    flattenOnImbalance?: boolean;
     cancelOpenOrders?: boolean;
   }): Promise<EntryReconcileResult> {
-    const flattenOnImbalance = params.flattenOnImbalance ?? true;
     const cancelOpenOrders = params.cancelOpenOrders ?? this.config.entryCancelOpenOrders;
     const attempts = Math.max(
       1,
@@ -463,36 +419,13 @@ export class TradingEngine {
       };
     }
 
-    if (!flattenOnImbalance) {
-      reasons.push("Imbalanced exposure remains after entry reconciliation window");
-      return {
-        status: "imbalanced",
-        attempts,
-        finalSummary,
-        cancelledOpenOrders,
-        reason: reasons.join("; "),
-      };
-    }
-
-    try {
-      const flattenResult = await this.forceSellAll(finalSummary, params.tokenIds);
-      return {
-        status: "flattened",
-        attempts,
-        finalSummary,
-        cancelledOpenOrders,
-        flattenResult,
-        reason: reasons.length > 0 ? reasons.join("; ") : undefined,
-      };
-    } catch (error) {
-      reasons.push(`Flatten failed: ${error instanceof Error ? error.message : String(error)}`);
-      return {
-        status: "failed",
-        attempts,
-        finalSummary,
-        cancelledOpenOrders,
-        reason: reasons.join("; "),
-      };
-    }
+    reasons.push("Imbalanced exposure remains after entry reconciliation window");
+    return {
+      status: "imbalanced",
+      attempts,
+      finalSummary,
+      cancelledOpenOrders,
+      reason: reasons.join("; "),
+    };
   }
 }

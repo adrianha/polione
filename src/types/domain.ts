@@ -57,14 +57,13 @@ export interface BotConfig {
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 }
 
-export type EntryReconcileStatus = "balanced" | "imbalanced" | "flattened" | "failed";
+export type EntryReconcileStatus = "balanced" | "imbalanced" | "failed";
 
 export interface EntryReconcileResult {
   status: EntryReconcileStatus;
   attempts: number;
   finalSummary: PositionSummary;
   cancelledOpenOrders?: unknown[];
-  flattenResult?: { up?: unknown; down?: unknown };
   reason?: string;
 }
 

@@ -465,7 +465,7 @@ export class PolymarketBot {
     summary: PositionSummary;
     secondsToClose: number | null;
     entryPrice: number;
-  }): Promise<{ status: "balanced" | "flattened" | "failed" }> {
+  }): Promise<{ status: "balanced" | "imbalanced" | "failed" }> {
     const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } = params;
     const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
     const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
@@ -480,7 +480,6 @@ export class PolymarketBot {
           positionsAddress,
           conditionId,
           tokenIds,
-          flattenOnImbalance: true,
           cancelOpenOrders: true,
         });
 
@@ -501,7 +500,7 @@ export class PolymarketBot {
           return { status: "balanced" };
         }
 
-        if (postHedgeReconcile.status === "flattened") {
+        if (postHedgeReconcile.status === "imbalanced") {
           this.logger.warn(
             {
               conditionId,
@@ -510,16 +509,15 @@ export class PolymarketBot {
               expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
               cancelledOpenOrders,
               hedgeBuy,
-              flattenResult: postHedgeReconcile.flattenResult,
               summary: postHedgeReconcile.finalSummary,
               secondsToClose,
             },
-            "Inside force-sell window: late hedge remained imbalanced and was flattened",
+            "Inside force-sell window: late hedge remained imbalanced",
           );
           await this.notify({
-            title: "Force sell executed (post-hedge residual)",
+            title: "Force-window hedge incomplete (residual imbalance)",
             severity: "warn",
-            dedupeKey: `post-hedge-force-sell:${conditionId}`,
+            dedupeKey: `post-hedge-residual:${conditionId}`,
             slug: market.slug,
             conditionId,
             upTokenId: tokenIds.upTokenId,
@@ -534,7 +532,7 @@ export class PolymarketBot {
               { key: "secondsToClose", value: secondsToClose },
             ],
           });
-          return { status: "flattened" };
+          return { status: "imbalanced" };
         }
 
         this.logger.error(
@@ -574,7 +572,6 @@ export class PolymarketBot {
       }
 
       const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
-      const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
       this.logger.warn(
         {
           conditionId,
@@ -582,16 +579,15 @@ export class PolymarketBot {
           maxHedgePrice: hedgeCheck.maxHedgePrice,
           expectedLockPnlPerShare: hedgeCheck.expectedLockPnlPerShare,
           cancelledOpenOrders,
-          forceSell,
           summary,
           secondsToClose,
         },
-        "Inside force-sell window: hedge not profitable, cancelled open orders and flattened filled position",
+        "Inside force-sell window: hedge not profitable, cancelled open orders and left residual imbalance",
       );
       await this.notify({
-        title: "Force-window fallback flattened (hedge not profitable)",
+        title: "Force-window hedge skipped (not profitable)",
         severity: "warn",
-        dedupeKey: `force-window-flatten:${conditionId}`,
+        dedupeKey: `force-window-skip:${conditionId}`,
         slug: market.slug,
         conditionId,
         upTokenId: tokenIds.upTokenId,
@@ -606,24 +602,22 @@ export class PolymarketBot {
           { key: "secondsToClose", value: secondsToClose },
         ],
       });
-      return { status: "flattened" };
+      return { status: "imbalanced" };
     }
 
     const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
-    const forceSell = await this.tradingEngine.forceSellAll(summary, tokenIds);
     this.logger.warn(
       {
         conditionId,
         bestMissingAsk,
         cancelledOpenOrders,
-        forceSell,
         summary,
         secondsToClose,
       },
-      "Inside force-sell window: missing-leg price unavailable, cancelled open orders and flattened filled position",
+      "Inside force-sell window: missing-leg price unavailable, cancelled open orders and left residual imbalance",
     );
     await this.notify({
-      title: "Force-window fallback flattened (missing-leg price unavailable)",
+      title: "Force-window hedge skipped (missing-leg price unavailable)",
       severity: "warn",
       dedupeKey: `force-window-missing-price:${conditionId}`,
       slug: market.slug,
@@ -637,7 +631,7 @@ export class PolymarketBot {
         { key: "secondsToClose", value: secondsToClose },
       ],
     });
-    return { status: "flattened" };
+    return { status: "imbalanced" };
   }
 
   private async loadPersistedTrackedMarkets(): Promise<void> {
@@ -788,16 +782,14 @@ export class PolymarketBot {
         entryPrice: this.config.orderPrice,
       });
 
-      if (recovery.status === "flattened") {
+      if (recovery.status !== "balanced") {
         return;
       }
 
-      if (recovery.status === "balanced") {
-        this.logger.info(
-          { conditionId: currentConditionId, secondsToClose, summary: currentSummary },
-          "Recovered imbalanced current market inside force-sell window",
-        );
-      }
+      this.logger.info(
+        { conditionId: currentConditionId, secondsToClose, summary: currentSummary },
+        "Recovered imbalanced current market inside force-sell window",
+      );
     }
   }
 
@@ -981,7 +973,6 @@ export class PolymarketBot {
         positionsAddress,
         conditionId: entryConditionId,
         tokenIds: entryTokenIds,
-        flattenOnImbalance: isFinalAttempt && !isInsideForceSellWindow,
         cancelOpenOrders: !isInsideForceSellWindow,
       });
 
@@ -1102,7 +1093,7 @@ export class PolymarketBot {
         continue;
       }
 
-      if (reconcile.status === "flattened") {
+      if (reconcile.status === "imbalanced") {
         this.logger.warn(
           {
             conditionId: entryConditionId,
@@ -1110,17 +1101,18 @@ export class PolymarketBot {
             attempts: reconcile.attempts,
             summary: reconcile.finalSummary,
             cancelledOpenOrders: reconcile.cancelledOpenOrders,
-            flattenResult: reconcile.flattenResult,
             reason: reconcile.reason,
             entryAttempt: attempt,
             entryPrice,
+            secondsToClose,
+            forceSellWindow: isInsideForceSellWindow,
           },
-          "Entry reconciliation flattened imbalanced exposure",
+          "Entry reconciliation ended imbalanced; keeping residual exposure",
         );
         await this.notify({
-          title: "Entry reconciliation flattened",
+          title: "Entry remains imbalanced",
           severity: "warn",
-          dedupeKey: `reconcile-flattened:${entryConditionId}`,
+          dedupeKey: `reconcile-imbalanced:${entryConditionId}`,
           slug: entryMarket.slug,
           conditionId: entryConditionId,
           upTokenId: entryTokenIds.upTokenId,
