@@ -129,7 +129,7 @@ Optional notifications:
 - Direct current-market entries run an immediate entry reconciliation window.
 - If a direct current-market entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
 - Next-market entries are persisted immediately and left untouched until that market rolls into current.
-- When a tracked market becomes current, `processCurrentEnteredMarket` owns imbalance recovery.
+- When a tracked market becomes current, `processTrackedCurrentMarket` owns imbalance recovery.
 - Outside `FORCE_SELL_THRESHOLD_SECONDS`, an imbalanced current market is observed only.
 - Inside the force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.

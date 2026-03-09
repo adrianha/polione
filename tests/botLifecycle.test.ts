@@ -124,7 +124,7 @@ describe("bot lifecycle", () => {
       expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.reconcilePairedEntry).not.toHaveBeenCalled();
-      expect(bot.enteredMarkets.has("cond-1")).toBe(true);
+      expect(bot.trackedMarkets.has("cond-1")).toBe(true);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -136,7 +136,7 @@ describe("bot lifecycle", () => {
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
 
     try {
-      await bot.processCurrentEnteredMarket({
+      await bot.processTrackedCurrentMarket({
         currentMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",

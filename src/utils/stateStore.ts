@@ -2,11 +2,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 interface PersistedState {
-  enteredMarkets: string[];
+  trackedMarkets: string[];
 }
 
 const defaultState = (): PersistedState => ({
-  enteredMarkets: [],
+  trackedMarkets: [],
 });
 
 const normalizeState = (value: unknown): PersistedState => {
@@ -14,27 +14,32 @@ const normalizeState = (value: unknown): PersistedState => {
     return defaultState();
   }
 
-  const raw = value as { enteredMarkets?: unknown };
-  if (!Array.isArray(raw.enteredMarkets)) {
+  const raw = value as { trackedMarkets?: unknown; enteredMarkets?: unknown };
+  const candidate = Array.isArray(raw.trackedMarkets)
+    ? raw.trackedMarkets
+    : Array.isArray(raw.enteredMarkets)
+      ? raw.enteredMarkets
+      : null;
+  if (!candidate) {
     return defaultState();
   }
 
-  const enteredMarkets = raw.enteredMarkets.filter(
+  const trackedMarkets = candidate.filter(
     (item): item is string => typeof item === "string" && item.length > 0,
   );
 
-  return { enteredMarkets: Array.from(new Set(enteredMarkets)) };
+  return { trackedMarkets: Array.from(new Set(trackedMarkets)) };
 };
 
 export class StateStore {
   constructor(private readonly filePath: string) {}
 
-  async loadEnteredMarkets(): Promise<Set<string>> {
+  async loadTrackedMarkets(): Promise<Set<string>> {
     try {
       const content = await fs.readFile(this.filePath, "utf8");
       const parsed = JSON.parse(content) as unknown;
       const state = normalizeState(parsed);
-      return new Set(state.enteredMarkets);
+      return new Set(state.trackedMarkets);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
@@ -44,9 +49,9 @@ export class StateStore {
     }
   }
 
-  async saveEnteredMarkets(enteredMarkets: Set<string>): Promise<void> {
+  async saveTrackedMarkets(trackedMarkets: Set<string>): Promise<void> {
     const state: PersistedState = {
-      enteredMarkets: Array.from(enteredMarkets),
+      trackedMarkets: Array.from(trackedMarkets),
     };
     const json = `${JSON.stringify(state, null, 2)}\n`;
 

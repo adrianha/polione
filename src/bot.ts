@@ -15,7 +15,7 @@ import { sleep } from "./utils/time.js";
 
 export class PolymarketBot {
   private stopped = false;
-  private readonly enteredMarkets = new Set<string>();
+  private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
   private readonly inFlightConditions = new Set<string>();
@@ -147,10 +147,10 @@ export class PolymarketBot {
     });
   }
 
-  private async markEnteredMarket(conditionId: string): Promise<void> {
-    this.enteredMarkets.add(conditionId);
+  private async markTrackedMarket(conditionId: string): Promise<void> {
+    this.trackedMarkets.add(conditionId);
     try {
-      await this.stateStore.saveEnteredMarkets(this.enteredMarkets);
+      await this.stateStore.saveTrackedMarkets(this.trackedMarkets);
     } catch (error) {
       this.logger.error(
         {
@@ -158,7 +158,7 @@ export class PolymarketBot {
           stateFilePath: this.config.stateFilePath,
           conditionId,
         },
-        "Failed to persist entered market state",
+        "Failed to persist tracked market state",
       );
     }
   }
@@ -404,11 +404,11 @@ export class PolymarketBot {
     return { status: "flattened" };
   }
 
-  private async loadPersistedEnteredMarkets(): Promise<void> {
+  private async loadPersistedTrackedMarkets(): Promise<void> {
     try {
-      const loaded = await this.stateStore.loadEnteredMarkets();
+      const loaded = await this.stateStore.loadTrackedMarkets();
       for (const conditionId of loaded) {
-        this.enteredMarkets.add(conditionId);
+        this.trackedMarkets.add(conditionId);
       }
     } catch (error) {
       this.logger.error(
@@ -416,12 +416,12 @@ export class PolymarketBot {
           error,
           stateFilePath: this.config.stateFilePath,
         },
-        "Failed to load persisted entered market state",
+        "Failed to load persisted tracked market state",
       );
     }
   }
 
-  private async processCurrentEnteredMarket(params: {
+  private async processTrackedCurrentMarket(params: {
     currentMarket: MarketRecord;
     currentConditionId: string;
     positionsAddress: string;
@@ -432,7 +432,7 @@ export class PolymarketBot {
     if (!currentTokenIds) {
       this.logger.warn(
         { slug: currentMarket.slug, conditionId: currentConditionId },
-        "Current entered market missing token IDs",
+        "Tracked current market missing token IDs",
       );
       return;
     }
@@ -595,13 +595,13 @@ export class PolymarketBot {
       "Evaluating entry market",
     );
 
-    if (this.enteredMarkets.has(entryConditionId)) {
+    if (this.trackedMarkets.has(entryConditionId)) {
       this.logger.info(
         {
           conditionId: entryConditionId,
           slug: entryMarket.slug,
         },
-        "Skipped new entry: market already has one paired entry",
+        "Skipped new entry: market already tracked",
       );
       return this.config.loopSleepSeconds;
     }
@@ -653,7 +653,7 @@ export class PolymarketBot {
         attempt: 0,
         mode: "non-current-market",
       });
-      await this.markEnteredMarket(entryConditionId);
+      await this.markTrackedMarket(entryConditionId);
       this.logger.info(
         {
           conditionId: entryConditionId,
@@ -743,7 +743,7 @@ export class PolymarketBot {
         });
 
         if (recovery.status === "balanced") {
-          await this.markEnteredMarket(entryConditionId);
+          await this.markTrackedMarket(entryConditionId);
           return this.config.positionRecheckSeconds;
         }
 
@@ -751,7 +751,7 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "balanced") {
-        await this.markEnteredMarket(entryConditionId);
+        await this.markTrackedMarket(entryConditionId);
         this.logger.info(
           {
             conditionId: entryConditionId,
@@ -904,9 +904,9 @@ export class PolymarketBot {
         }
 
         const currentConditionId = this.marketDiscovery.getConditionId(currentMarket);
-        if (currentConditionId && this.enteredMarkets.has(currentConditionId)) {
+        if (currentConditionId && this.trackedMarkets.has(currentConditionId)) {
           const locked = await this.withConditionLock(currentConditionId, async () => {
-            await this.processCurrentEnteredMarket({
+            await this.processTrackedCurrentMarket({
               currentMarket,
               currentConditionId,
               positionsAddress,
@@ -1049,7 +1049,7 @@ export class PolymarketBot {
     const userAddress = this.clobClient.getSignerAddress();
     const positionsAddress = this.config.funder ?? userAddress;
 
-    await this.loadPersistedEnteredMarkets();
+    await this.loadPersistedTrackedMarkets();
 
     this.logger.info(
       {
@@ -1057,7 +1057,7 @@ export class PolymarketBot {
         userAddress,
         positionsAddress,
         relayerEnabled: this.relayerClient.isAvailable(),
-        persistedEnteredMarketCount: this.enteredMarkets.size,
+        persistedTrackedMarketCount: this.trackedMarkets.size,
         stateFilePath: this.config.stateFilePath,
       },
       "Bot initialized",
@@ -1101,7 +1101,7 @@ export class PolymarketBot {
       dedupeKey: `bot-stop:${Math.floor(Date.now() / 60000)}`,
       details: [
         { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
-        { key: "enteredMarketCount", value: this.enteredMarkets.size },
+        { key: "trackedMarketCount", value: this.trackedMarkets.size },
         { key: "stateFilePath", value: this.config.stateFilePath },
       ],
     });
