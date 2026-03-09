@@ -3,6 +3,7 @@ import type { BotConfig, MarketRecord } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
 import { ClobWsClient } from "./clients/clobWsClient.js";
+import { TelegramClient, escapeHtml, truncateId } from "./clients/telegramClient.js";
 import { PolyRelayerClient } from "./clients/relayerClient.js";
 import { DataClient } from "./clients/dataClient.js";
 import { MarketDiscoveryService } from "./services/marketDiscovery.js";
@@ -15,6 +16,7 @@ import { sleep } from "./utils/time.js";
 export class PolymarketBot {
   private stopped = false;
   private readonly enteredMarkets = new Set<string>();
+  private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
   private readonly inFlightConditions = new Set<string>();
 
@@ -26,6 +28,7 @@ export class PolymarketBot {
   private readonly marketDiscovery: MarketDiscoveryService;
   private readonly tradingEngine: TradingEngine;
   private readonly settlementService: SettlementService;
+  private readonly telegramClient: TelegramClient;
   private readonly stateStore: StateStore;
   private latestCurrentMarket: MarketRecord | null = null;
   private latestNextMarket: MarketRecord | null = null;
@@ -43,7 +46,104 @@ export class PolymarketBot {
     this.marketDiscovery = new MarketDiscoveryService(config, this.gammaClient);
     this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient, this.clobWsClient);
     this.settlementService = new SettlementService(this.relayerClient);
+    this.telegramClient = new TelegramClient({
+      botToken: config.telegramBotToken,
+      chatId: config.telegramChatId,
+      logger,
+    });
     this.stateStore = new StateStore(config.stateFilePath);
+  }
+
+  private formatTelegramMessage(params: {
+    title: string;
+    severity: "warn" | "error" | "info";
+    slug?: string;
+    conditionId?: string;
+    upTokenId?: string;
+    downTokenId?: string;
+    details: Array<{ key: string; value: string | number | null | undefined }>;
+  }): string {
+    const icon = params.severity === "error" ? "❌" : params.severity === "warn" ? "⚠️" : "✅";
+    const lines = [`<b>${icon} ${escapeHtml(params.title)}</b>`];
+
+    if (params.slug) {
+      lines.push(`<b>Market</b>: <code>${escapeHtml(params.slug)}</code>`);
+    }
+    if (params.conditionId) {
+      lines.push(`<b>Condition</b>: <code>${escapeHtml(truncateId(params.conditionId))}</code>`);
+    }
+    if (params.upTokenId || params.downTokenId) {
+      lines.push(
+        `<b>Tokens</b>: UP <code>${escapeHtml(truncateId(params.upTokenId ?? "-"))}</code> | DOWN <code>${escapeHtml(
+          truncateId(params.downTokenId ?? "-"),
+        )}</code>`,
+      );
+    }
+
+    for (const detail of params.details) {
+      if (detail.value === null || detail.value === undefined || detail.value === "") {
+        continue;
+      }
+      lines.push(`<b>${escapeHtml(detail.key)}</b>: <code>${escapeHtml(String(detail.value))}</code>`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private async notify(params: {
+    title: string;
+    severity: "warn" | "error" | "info";
+    dedupeKey: string;
+    slug?: string;
+    conditionId?: string;
+    upTokenId?: string;
+    downTokenId?: string;
+    details: Array<{ key: string; value: string | number | null | undefined }>;
+  }): Promise<void> {
+    const message = this.formatTelegramMessage({
+      title: params.title,
+      severity: params.severity,
+      slug: params.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.upTokenId,
+      downTokenId: params.downTokenId,
+      details: params.details,
+    });
+    await this.telegramClient.sendHtml(message, params.dedupeKey);
+  }
+
+  private async notifyPlacementSuccessOnce(params: {
+    conditionId: string;
+    slug?: string;
+    upTokenId: string;
+    downTokenId: string;
+    entryPrice: number;
+    orderSize: number;
+    attempt: number;
+    secondsToClose?: number | null;
+    mode: "current-market" | "non-current-market";
+  }): Promise<void> {
+    if (this.notifiedPlacementSuccess.has(params.conditionId)) {
+      return;
+    }
+
+    this.notifiedPlacementSuccess.add(params.conditionId);
+    await this.notify({
+      title: "Paired limit orders placed",
+      severity: "info",
+      dedupeKey: `placement-success:${params.conditionId}`,
+      slug: params.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.upTokenId,
+      downTokenId: params.downTokenId,
+      details: [
+        { key: "entryPrice", value: params.entryPrice },
+        { key: "orderSize", value: params.orderSize },
+        { key: "attempt", value: params.attempt },
+        { key: "secondsToClose", value: params.secondsToClose },
+        { key: "mode", value: params.mode },
+      ],
+    });
   }
 
   private async markEnteredMarket(conditionId: string): Promise<void> {
@@ -190,6 +290,19 @@ export class PolymarketBot {
           },
           "Merge skipped: relayer is rate limited",
         );
+        await this.notify({
+          title: "Merge skipped (relayer rate limited)",
+          severity: "warn",
+          dedupeKey: `merge-rate-limit:${currentConditionId}`,
+          slug: currentMarket.slug,
+          conditionId: currentConditionId,
+          upTokenId: currentTokenIds.upTokenId,
+          downTokenId: currentTokenIds.downTokenId,
+          details: [
+            { key: "retryAt", value: mergeObj?.retryAt as string | number | undefined },
+            { key: "secondsToClose", value: secondsToClose },
+          ],
+        });
         return;
       }
 
@@ -300,6 +413,16 @@ export class PolymarketBot {
         },
         "Placed paired limit buy orders for non-current market; liquidity gate bypassed",
       );
+      await this.notifyPlacementSuccessOnce({
+        conditionId: entryConditionId,
+        slug: entryMarket.slug,
+        upTokenId: entryTokenIds.upTokenId,
+        downTokenId: entryTokenIds.downTokenId,
+        entryPrice,
+        orderSize: this.config.orderSize,
+        attempt: 0,
+        mode: "non-current-market",
+      });
       await this.markEnteredMarket(entryConditionId);
       return this.config.loopSleepSeconds;
     }
@@ -350,6 +473,17 @@ export class PolymarketBot {
         },
         "Placed paired limit buy orders",
       );
+      await this.notifyPlacementSuccessOnce({
+        conditionId: entryConditionId,
+        slug: entryMarket.slug,
+        upTokenId: entryTokenIds.upTokenId,
+        downTokenId: entryTokenIds.downTokenId,
+        entryPrice,
+        orderSize: liquidity.orderSize,
+        attempt,
+        secondsToClose,
+        mode: "current-market",
+      });
 
       const isFinalAttempt = attempt >= maxRepriceAttempts;
       const reconcile = await this.tradingEngine.reconcilePairedEntry({
@@ -455,6 +589,24 @@ export class PolymarketBot {
             },
             "Inside force-sell window: hedge not profitable, cancelled open orders and flattened filled position",
           );
+          await this.notify({
+            title: "Force-window fallback flattened (hedge not profitable)",
+            severity: "warn",
+            dedupeKey: `force-window-flatten:${entryConditionId}`,
+            slug: entryMarket.slug,
+            conditionId: entryConditionId,
+            upTokenId: entryTokenIds.upTokenId,
+            downTokenId: entryTokenIds.downTokenId,
+            details: [
+              { key: "bestMissingAsk", value: bestMissingAsk },
+              { key: "maxHedgePrice", value: hedgeCheck.maxHedgePrice },
+              { key: "expectedLockPnlPerShare", value: hedgeCheck.expectedLockPnlPerShare },
+              { key: "up", value: reconcile.finalSummary.upSize },
+              { key: "down", value: reconcile.finalSummary.downSize },
+              { key: "diff", value: reconcile.finalSummary.differenceAbs },
+              { key: "secondsToClose", value: secondsToClose },
+            ],
+          });
           return this.config.loopSleepSeconds;
         }
 
@@ -471,6 +623,21 @@ export class PolymarketBot {
           },
           "Inside force-sell window: missing-leg price unavailable, cancelled open orders and flattened filled position",
         );
+        await this.notify({
+          title: "Force-window fallback flattened (missing-leg price unavailable)",
+          severity: "warn",
+          dedupeKey: `force-window-missing-price:${entryConditionId}`,
+          slug: entryMarket.slug,
+          conditionId: entryConditionId,
+          upTokenId: entryTokenIds.upTokenId,
+          downTokenId: entryTokenIds.downTokenId,
+          details: [
+            { key: "up", value: reconcile.finalSummary.upSize },
+            { key: "down", value: reconcile.finalSummary.downSize },
+            { key: "diff", value: reconcile.finalSummary.differenceAbs },
+            { key: "secondsToClose", value: secondsToClose },
+          ],
+        });
         return this.config.loopSleepSeconds;
       }
 
@@ -523,6 +690,24 @@ export class PolymarketBot {
           },
           "Entry reconciliation flattened imbalanced exposure",
         );
+        await this.notify({
+          title: "Entry reconciliation flattened",
+          severity: "warn",
+          dedupeKey: `reconcile-flattened:${entryConditionId}`,
+          slug: entryMarket.slug,
+          conditionId: entryConditionId,
+          upTokenId: entryTokenIds.upTokenId,
+          downTokenId: entryTokenIds.downTokenId,
+          details: [
+            { key: "attempt", value: attempt },
+            { key: "entryPrice", value: entryPrice },
+            { key: "up", value: reconcile.finalSummary.upSize },
+            { key: "down", value: reconcile.finalSummary.downSize },
+            { key: "diff", value: reconcile.finalSummary.differenceAbs },
+            { key: "reason", value: reconcile.reason },
+            { key: "secondsToClose", value: secondsToClose },
+          ],
+        });
         return this.config.loopSleepSeconds;
       }
 
@@ -539,6 +724,24 @@ export class PolymarketBot {
         },
         "Entry reconciliation failed",
       );
+      await this.notify({
+        title: "Entry reconciliation failed",
+        severity: "error",
+        dedupeKey: `reconcile-failed:${entryConditionId}`,
+        slug: entryMarket.slug,
+        conditionId: entryConditionId,
+        upTokenId: entryTokenIds.upTokenId,
+        downTokenId: entryTokenIds.downTokenId,
+        details: [
+          { key: "attempt", value: attempt },
+          { key: "entryPrice", value: entryPrice },
+          { key: "up", value: reconcile.finalSummary.upSize },
+          { key: "down", value: reconcile.finalSummary.downSize },
+          { key: "diff", value: reconcile.finalSummary.differenceAbs },
+          { key: "reason", value: reconcile.reason },
+          { key: "secondsToClose", value: secondsToClose },
+        ],
+      });
 
       return this.config.loopSleepSeconds;
     }

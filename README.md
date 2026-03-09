@@ -116,6 +116,10 @@ Optional relayer builder auth:
 - Local creds: `BUILDER_API_KEY`, `BUILDER_API_SECRET`, `BUILDER_API_PASSPHRASE` (must all be set together)
 - Remote signer: `BUILDER_SIGNER_URL` (+ optional `BUILDER_SIGNER_TOKEN`)
 
+Optional notifications:
+
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (Telegram notifications are enabled only when both are set)
+
 ## Safety and state
 
 - Dry run returns intents for all write operations (CLOB + relayer).
@@ -127,6 +131,8 @@ Optional relayer builder auth:
 - Inside force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - If a one-leg imbalance remains after reconciliation, it cancels open entry orders (when enabled) and flattens residual exposure using existing market-sell behavior.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
+- Telegram notifications use rich text with truncated IDs for readability and include market details.
+- Notifications are sent for non-success critical events and first successful paired placement per condition.
 
 ## Workflow
 

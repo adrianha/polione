@@ -12,6 +12,8 @@ const config: BotConfig = {
   enableClobWs: false,
   wsQuotesMaxAgeMs: 2000,
   wsReconnectDelayMs: 2000,
+  telegramBotToken: undefined,
+  telegramChatId: undefined,
   gammaApiBaseUrl: "https://gamma-api.polymarket.com",
   dataApiBaseUrl: "https://data-api.polymarket.com",
   marketSlugPrefix: "btc-updown-5m",

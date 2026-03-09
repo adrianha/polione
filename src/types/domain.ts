@@ -20,6 +20,8 @@ export interface BotConfig {
   builderApiPassphrase?: string;
   builderSignerUrl?: string;
   builderSignerToken?: string;
+  telegramBotToken?: string;
+  telegramChatId?: string;
   marketSlugPrefix: string;
   marketIntervalSeconds: number;
   orderPrice: number;
