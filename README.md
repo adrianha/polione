@@ -119,6 +119,7 @@ Optional relayer builder auth:
 Optional notifications:
 
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (Telegram notifications are enabled only when both are set)
+- Telegram command support: send `/balance` or `/usdc` in the configured chat to receive current USDC balance.
 
 ## Safety and state
 

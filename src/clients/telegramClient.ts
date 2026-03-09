@@ -92,4 +92,43 @@ export class TelegramClient {
       this.logger.warn({ error }, "Telegram send error");
     }
   }
+
+  async getUpdates(offset?: number): Promise<Array<{ update_id: number; message?: { text?: string; chat?: { id?: number } } }>> {
+    if (!this.isEnabled()) {
+      return [];
+    }
+
+    try {
+      const url = `${TELEGRAM_API_BASE}/bot${this.botToken}/getUpdates`;
+      const res = await request(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          offset,
+          timeout: 0,
+          allowed_updates: ["message"],
+        }),
+        headersTimeout: this.messageTimeoutMs,
+        bodyTimeout: this.messageTimeoutMs,
+      });
+
+      if (res.statusCode >= 400) {
+        const body = await res.body.text();
+        this.logger.warn({ status: res.statusCode, body }, "Telegram getUpdates failed");
+        return [];
+      }
+
+      const payload = (await res.body.json()) as { ok?: boolean; result?: unknown };
+      if (!payload.ok || !Array.isArray(payload.result)) {
+        return [];
+      }
+
+      return payload.result as Array<{ update_id: number; message?: { text?: string; chat?: { id?: number } } }>;
+    } catch (error) {
+      this.logger.warn({ error }, "Telegram getUpdates error");
+      return [];
+    }
+  }
 }

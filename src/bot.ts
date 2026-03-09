@@ -33,6 +33,7 @@ export class PolymarketBot {
   private latestCurrentMarket: MarketRecord | null = null;
   private latestNextMarket: MarketRecord | null = null;
   private snapshotUpdatedAtMs: number | null = null;
+  private telegramOffset: number | undefined;
 
   constructor(
     private readonly config: BotConfig,
@@ -862,6 +863,58 @@ export class PolymarketBot {
     }
   }
 
+  private async telegramCommandLoop(): Promise<void> {
+    while (!this.stopped) {
+      try {
+        if (!this.telegramClient.isEnabled()) {
+          await sleep(this.config.loopSleepSeconds);
+          continue;
+        }
+
+        const updates = await this.telegramClient.getUpdates(this.telegramOffset);
+        for (const update of updates) {
+          this.telegramOffset = update.update_id + 1;
+
+          const text = update.message?.text?.trim().toLowerCase();
+          const chatId = update.message?.chat?.id;
+          if (!text || typeof chatId !== "number") {
+            continue;
+          }
+
+          if (this.config.telegramChatId && String(chatId) !== this.config.telegramChatId) {
+            continue;
+          }
+
+          if (text === "/balance" || text === "/usdc" || text === "balance") {
+            try {
+              const balance = await this.clobClient.getUsdcBalance();
+              await this.notify({
+                title: "USDC balance",
+                severity: "info",
+                dedupeKey: `telegram-balance:${Math.floor(Date.now() / 5000)}`,
+                details: [
+                  { key: "usdc", value: balance },
+                  { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+                ],
+              });
+            } catch (error) {
+              await this.notify({
+                title: "USDC balance check failed",
+                severity: "error",
+                dedupeKey: `telegram-balance-error:${Math.floor(Date.now() / 5000)}`,
+                details: [{ key: "error", value: error instanceof Error ? error.message : String(error) }],
+              });
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn({ error }, "Telegram command loop error");
+      }
+
+      await sleep(Math.max(2, this.config.loopSleepSeconds));
+    }
+  }
+
   private async entryLoop(positionsAddress: string): Promise<void> {
     while (!this.stopped) {
       let sleepSeconds = this.config.loopSleepSeconds;
@@ -974,6 +1027,7 @@ export class PolymarketBot {
       this.discoveryLoop(),
       this.currentMarketLoop(positionsAddress),
       this.entryLoop(positionsAddress),
+      this.telegramCommandLoop(),
     ]);
 
     await this.notify({
