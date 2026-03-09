@@ -172,6 +172,22 @@ export class PolyClobClient {
     return this.client.cancelOrder(payload);
   }
 
+  async cancelOrders(orderIds: string[]): Promise<unknown> {
+    if (orderIds.length === 0) {
+      return [];
+    }
+
+    if (this.config.dryRun) {
+      const intents: TradeIntent[] = orderIds.map((orderId) => ({
+        action: "CANCEL_ORDER",
+        payload: { orderId },
+      }));
+      return { dryRun: true, intents };
+    }
+
+    return this.client.cancelOrders(orderIds);
+  }
+
   async getOpenOrders(): Promise<OpenOrdersResponse> {
     return this.client.getOpenOrders();
   }
@@ -193,28 +209,41 @@ export class PolyClobClient {
       const tokenId =
         (record as { tokenID?: unknown }).tokenID ??
         (record as { tokenId?: unknown }).tokenId ??
-        (record as { asset_id?: unknown }).asset_id;
+        (record as { asset_id?: unknown }).asset_id ??
+        (record as { assetId?: unknown }).assetId;
 
       return typeof tokenId === "string" && uniqueTokenIds.has(tokenId);
     });
 
-    const results: unknown[] = [];
+    const orderIds = Array.from(
+      new Set(
+        matches
+          .map((record) => {
+            const orderId =
+              (record as { id?: unknown }).id ??
+              (record as { orderID?: unknown }).orderID ??
+              (record as { orderId?: unknown }).orderId ??
+              (record as { order_id?: unknown }).order_id;
+            return typeof orderId === "string" && orderId ? orderId : null;
+          })
+          .filter((value): value is string => value !== null),
+      ),
+    );
 
-    for (const record of matches) {
-      const orderId =
-        (record as { id?: unknown }).id ??
-        (record as { orderID?: unknown }).orderID ??
-        (record as { orderId?: unknown }).orderId;
-
-      if (typeof orderId !== "string" || !orderId) {
-        continue;
-      }
-
-      const cancel = await this.cancelOrder(orderId);
-      results.push(cancel);
+    if (orderIds.length === 0) {
+      return [];
     }
 
-    return results;
+    try {
+      const batchCancel = await this.cancelOrders(orderIds);
+      return Array.isArray(batchCancel) ? batchCancel : [batchCancel];
+    } catch {
+      const results: unknown[] = [];
+      for (const orderId of orderIds) {
+        results.push(await this.cancelOrder(orderId));
+      }
+      return results;
+    }
   }
 
   async getUsdcBalance(): Promise<number> {
