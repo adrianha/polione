@@ -84,7 +84,10 @@ export class PolymarketBot {
     return ageMs > maxAgeMs;
   }
 
-  private async withConditionLock<T>(conditionId: string, run: () => Promise<T>): Promise<{ executed: boolean; result?: T }> {
+  private async withConditionLock<T>(
+    conditionId: string,
+    run: () => Promise<T>,
+  ): Promise<{ executed: boolean; result?: T }> {
     if (this.inFlightConditions.has(conditionId)) {
       return { executed: false };
     }
@@ -98,16 +101,15 @@ export class PolymarketBot {
     }
   }
 
-  private evaluateForceWindowHedge(entryPrice: number, bestMissingAsk: number): {
+  private evaluateForceWindowHedge(
+    entryPrice: number,
+    bestMissingAsk: number,
+  ): {
     isProfitable: boolean;
     maxHedgePrice: number;
     expectedLockPnlPerShare: number;
   } {
-    const maxHedgePrice =
-      1 -
-      entryPrice -
-      this.config.forceWindowFeeBuffer -
-      this.config.forceWindowMinProfitPerShare;
+    const maxHedgePrice = 1 - entryPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare;
 
     const expectedLockPnlPerShare = 1 - entryPrice - bestMissingAsk - this.config.forceWindowFeeBuffer;
 
@@ -182,11 +184,7 @@ export class PolymarketBot {
       return;
     }
 
-    if (
-      !positionsEqual &&
-      secondsToClose !== null &&
-      secondsToClose <= this.config.forceSellThresholdSeconds
-    ) {
+    if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
       const forceSell = await this.tradingEngine.forceSellAll(currentSummary, currentTokenIds);
       this.logger.info({ forceSell, conditionId: currentConditionId }, "Force sell flow executed");
     }
@@ -268,13 +266,9 @@ export class PolymarketBot {
     }
 
     const isCurrentMarketEntry = currentConditionId !== null && entryConditionId === currentConditionId;
-    const secondsToClose = isCurrentMarketEntry
-      ? this.marketDiscovery.getSecondsToMarketClose(entryMarket)
-      : null;
+    const secondsToClose = isCurrentMarketEntry ? this.marketDiscovery.getSecondsToMarketClose(entryMarket) : null;
     const isInsideForceSellWindow =
-      isCurrentMarketEntry &&
-      secondsToClose !== null &&
-      secondsToClose <= this.config.forceSellThresholdSeconds;
+      isCurrentMarketEntry && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds;
 
     if (!isCurrentMarketEntry) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
@@ -320,7 +314,11 @@ export class PolymarketBot {
         return this.config.loopSleepSeconds;
       }
 
-      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice, liquidity.orderSize);
+      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
+        entryTokenIds,
+        entryPrice,
+        liquidity.orderSize,
+      );
       this.logger.info(
         {
           paired,
@@ -413,7 +411,10 @@ export class PolymarketBot {
               "Late hedge completion still imbalanced; flattening residual position",
             );
 
-            const flattenAfterHedge = await this.tradingEngine.forceSellAll(postHedgeReconcile.finalSummary, entryTokenIds);
+            const flattenAfterHedge = await this.tradingEngine.forceSellAll(
+              postHedgeReconcile.finalSummary,
+              entryTokenIds,
+            );
             this.logger.warn(
               {
                 conditionId: entryConditionId,
@@ -562,7 +563,10 @@ export class PolymarketBot {
     while (!this.stopped) {
       try {
         if (this.isSnapshotStale()) {
-          this.logger.warn({ snapshotAgeMs: this.getSnapshotAgeMs() }, "Current market loop skipped: stale market snapshot");
+          this.logger.warn(
+            { snapshotAgeMs: this.getSnapshotAgeMs() },
+            "Current market loop skipped: stale market snapshot",
+          );
           await sleep(this.config.currentLoopSleepSeconds);
           continue;
         }
@@ -647,10 +651,7 @@ export class PolymarketBot {
           });
 
           if (!locked.executed) {
-            this.logger.debug(
-              { conditionId: entryConditionId },
-              "Entry loop skipped: condition already in flight",
-            );
+            this.logger.debug({ conditionId: entryConditionId }, "Entry loop skipped: condition already in flight");
             sleepSeconds = this.config.loopSleepSeconds;
           } else {
             sleepSeconds = locked.result ?? this.config.loopSleepSeconds;
