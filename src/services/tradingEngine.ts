@@ -2,7 +2,7 @@ import type { DataClient } from "../clients/dataClient.js";
 import type { BotConfig, EntryReconcileResult, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
 import type { ClobWsClient } from "../clients/clobWsClient.js";
-import type { OrderBookSummary } from "@polymarket/clob-client";
+import { OrderType, type OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
 
@@ -213,6 +213,7 @@ export class TradingEngine {
       side: "BUY",
       amount,
       price: maxBuyPrice,
+      orderType: OrderType.FAK,
     });
 
     return {
@@ -228,22 +229,37 @@ export class TradingEngine {
   ): Promise<{ up?: unknown; down?: unknown }> {
     const results: { up?: unknown; down?: unknown } = {};
 
+    const executeChunkedSell = async (tokenId: string, amount: number): Promise<unknown[]> => {
+      const chunks = [amount, amount * 0.5, amount * 0.25, amount * 0.25]
+        .map((value) => Number(value.toFixed(6)))
+        .filter((value) => value > 0);
+      const outcomes: unknown[] = [];
+      for (const chunk of chunks) {
+        try {
+          const res = await this.clobClient.placeMarketOrder({
+            tokenId,
+            side: "SELL",
+            amount: chunk,
+            price: 0.01,
+            orderType: OrderType.FAK,
+          });
+          outcomes.push({ chunk, result: res });
+          if (this.config.dryRun) {
+            break;
+          }
+        } catch (error) {
+          outcomes.push({ chunk, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      return outcomes;
+    };
+
     if (summary.upSize > 0) {
-      results.up = await this.clobClient.placeMarketOrder({
-        tokenId: tokenIds.upTokenId,
-        side: "SELL",
-        amount: summary.upSize,
-        price: 0.01,
-      });
+      results.up = await executeChunkedSell(tokenIds.upTokenId, summary.upSize);
     }
 
     if (summary.downSize > 0) {
-      results.down = await this.clobClient.placeMarketOrder({
-        tokenId: tokenIds.downTokenId,
-        side: "SELL",
-        amount: summary.downSize,
-        price: 0.01,
-      });
+      results.down = await executeChunkedSell(tokenIds.downTokenId, summary.downSize);
     }
 
     return results;

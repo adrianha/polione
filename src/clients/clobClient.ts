@@ -134,6 +134,7 @@ export class PolyClobClient {
     side: BotSide;
     amount: number;
     price?: number;
+    orderType?: OrderType.FOK | OrderType.FAK;
     tickSize?: TickSize;
     negRisk?: boolean;
   }): Promise<unknown> {
@@ -156,7 +157,7 @@ export class PolyClobClient {
         tickSize: params.tickSize ?? "0.01",
         negRisk: params.negRisk ?? false,
       },
-      OrderType.FOK,
+      params.orderType ?? OrderType.FAK,
     );
   }
 
