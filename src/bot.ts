@@ -792,16 +792,95 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
-      this.logger.info(
+      const oneSided = this.getOneSidedImbalance(currentSummary, currentTokenIds);
+      if (!oneSided) {
+        this.logger.info(
+          {
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            up: currentSummary.upSize,
+            down: currentSummary.downSize,
+            diff: currentSummary.differenceAbs,
+            secondsToClose,
+          },
+          "Observed non-one-sided imbalance outside force-sell window; no action taken",
+        );
+        return;
+      }
+
+      const recovery = await this.runContinuousMissingLegRecovery({
+        market: currentMarket,
+        conditionId: currentConditionId,
+        positionsAddress,
+        tokenIds: currentTokenIds,
+        initialSummary: currentSummary,
+        filledLegAvgPrice: this.config.orderPrice,
+      });
+
+      if (recovery.status === "balanced") {
+        await this.notifyEntryFilledOnce({
+          conditionId: currentConditionId,
+          slug: currentMarket.slug,
+          upTokenId: currentTokenIds.upTokenId,
+          downTokenId: currentTokenIds.downTokenId,
+          upSize: recovery.finalSummary.upSize,
+          downSize: recovery.finalSummary.downSize,
+          entryPrice: this.config.orderPrice,
+          filledLegAvgPrice: this.config.orderPrice,
+          mode: "continuous-recovery",
+        });
+        this.logger.info(
+          {
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            summary: recovery.finalSummary,
+            iterations: recovery.iterations,
+            lastPlacedPrice: recovery.lastPlacedPrice,
+            secondsToClose,
+          },
+          "Recovered imbalanced current market outside force-sell window",
+        );
+        return;
+      }
+
+      if (recovery.status === "force-window") {
+        const forceRecovery = await this.handleForceWindowImbalance({
+          market: currentMarket,
+          conditionId: currentConditionId,
+          positionsAddress,
+          tokenIds: currentTokenIds,
+          summary: recovery.finalSummary,
+          secondsToClose,
+          entryPrice: this.config.orderPrice,
+        });
+
+        if (forceRecovery.status === "balanced") {
+          await this.notifyEntryFilledOnce({
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            upTokenId: currentTokenIds.upTokenId,
+            downTokenId: currentTokenIds.downTokenId,
+            upSize: recovery.finalSummary.upSize,
+            downSize: recovery.finalSummary.downSize,
+            entryPrice: this.config.orderPrice,
+            filledLegAvgPrice: this.config.orderPrice,
+            mode: "force-window",
+          });
+        }
+        return;
+      }
+
+      this.logger.warn(
         {
           conditionId: currentConditionId,
           slug: currentMarket.slug,
-          up: currentSummary.upSize,
-          down: currentSummary.downSize,
-          diff: currentSummary.differenceAbs,
+          summary: recovery.finalSummary,
+          status: recovery.status,
+          reason: recovery.reason,
+          iterations: recovery.iterations,
           secondsToClose,
         },
-        "Observed imbalanced current market outside force-sell window; no action taken",
+        "Continuous recovery could not rebalance current market outside force-sell window",
       );
       return;
     }

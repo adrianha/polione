@@ -145,9 +145,17 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("observes imbalanced current markets outside the force window without acting", async () => {
+  it("runs continuous recovery for one-sided current-market imbalance outside force window", async () => {
     const { bot, tempDir } = await createBot();
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
+    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
 
     try {
@@ -157,8 +165,9 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.getBestAskPrice).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.getTopOfBook).toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
+      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
