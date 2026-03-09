@@ -193,6 +193,33 @@ export class PolyClobClient {
     return this.client.getOpenOrders();
   }
 
+  async getOrder(orderId: string): Promise<unknown> {
+    return this.client.getOrder(orderId);
+  }
+
+  async getTrades(params?: {
+    id?: string;
+    makerAddress?: string;
+    market?: string;
+    assetId?: string;
+    before?: string;
+    after?: string;
+  }): Promise<unknown[]> {
+    const trades = await this.client.getTrades(
+      params
+        ? {
+            id: params.id,
+            maker_address: params.makerAddress,
+            market: params.market,
+            asset_id: params.assetId,
+            before: params.before,
+            after: params.after,
+          }
+        : undefined,
+    );
+    return Array.isArray(trades) ? trades : [];
+  }
+
   async getOrderBook(tokenId: string): Promise<OrderBookSummary> {
     return this.client.getOrderBook(tokenId);
   }

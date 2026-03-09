@@ -53,6 +53,122 @@ export class TradingEngine {
     };
   }
 
+  async placeSingleLimitBuyAtPrice(tokenId: string, price: number, size: number): Promise<unknown> {
+    return this.clobClient.placeLimitOrder({
+      tokenId,
+      side: "BUY",
+      price,
+      size,
+    });
+  }
+
+  extractOrderId(orderResult: unknown): string | null {
+    if (!orderResult || typeof orderResult !== "object") {
+      return null;
+    }
+
+    const record = orderResult as Record<string, unknown>;
+    const candidates = [record.orderID, record.orderId, record.order_id, record.id];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.length > 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  async getFilledAveragePriceForOrder(orderResult: unknown, fallbackPrice: number): Promise<{
+    avgPrice: number;
+    filledSize: number;
+    source: "trades" | "order" | "fallback";
+    orderId: string | null;
+  }> {
+    const orderId = this.extractOrderId(orderResult);
+    const fallback = {
+      avgPrice: fallbackPrice,
+      filledSize: 0,
+      source: "fallback" as const,
+      orderId,
+    };
+
+    if (!orderId) {
+      return fallback;
+    }
+
+    let orderPayload: unknown;
+    try {
+      orderPayload = await this.clobClient.getOrder(orderId);
+    } catch {
+      return fallback;
+    }
+
+    if (!orderPayload || typeof orderPayload !== "object") {
+      return fallback;
+    }
+
+    const orderRecord = orderPayload as Record<string, unknown>;
+    const associatedTrades = Array.isArray(orderRecord.associate_trades)
+      ? orderRecord.associate_trades.filter((item): item is string => typeof item === "string")
+      : [];
+
+    let totalSize = 0;
+    let totalNotional = 0;
+
+    for (const tradeId of associatedTrades) {
+      let trades: unknown[] = [];
+      try {
+        trades = await this.clobClient.getTrades({ id: tradeId });
+      } catch {
+        continue;
+      }
+
+      const matchedTrade = trades.find((trade) => {
+        if (!trade || typeof trade !== "object") {
+          return false;
+        }
+        const tradeIdValue = (trade as Record<string, unknown>).id;
+        return typeof tradeIdValue !== "string" || tradeIdValue === tradeId;
+      });
+
+      if (!matchedTrade || typeof matchedTrade !== "object") {
+        continue;
+      }
+
+      const tradeRecord = matchedTrade as Record<string, unknown>;
+      const price = this.parsePositive(tradeRecord.price);
+      const size = this.parsePositive(tradeRecord.size);
+      if (price <= 0 || size <= 0) {
+        continue;
+      }
+
+      totalSize += size;
+      totalNotional += price * size;
+    }
+
+    if (totalSize > 0 && totalNotional > 0) {
+      return {
+        avgPrice: Number((totalNotional / totalSize).toFixed(6)),
+        filledSize: Number(totalSize.toFixed(6)),
+        source: "trades",
+        orderId,
+      };
+    }
+
+    const matchedSize = this.parsePositive(orderRecord.size_matched);
+    const orderPrice = this.parsePositive(orderRecord.price);
+    if (matchedSize > 0 && orderPrice > 0) {
+      return {
+        avgPrice: orderPrice,
+        filledSize: matchedSize,
+        source: "order",
+        orderId,
+      };
+    }
+
+    return fallback;
+  }
+
   getEntryPriceForAttempt(attempt: number): number {
     const stepped = this.config.orderPrice + this.config.entryRepriceStep * Math.max(0, attempt);
     return Math.min(this.config.entryMaxPrice, Number(stepped.toFixed(4)));
@@ -187,6 +303,25 @@ export class TradingEngine {
 
     const book = await this.clobClient.getOrderBook(tokenId);
     return this.getBestAsk(book);
+  }
+
+  async getTopOfBook(tokenId: string): Promise<{ bestBid: number; bestAsk: number }> {
+    this.clobWsClient?.ensureSubscribed([tokenId]);
+    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
+    if (wsQuote && wsQuote.bestAsk > 0 && wsQuote.bestBid > 0) {
+      return {
+        bestBid: wsQuote.bestBid,
+        bestAsk: wsQuote.bestAsk,
+      };
+    }
+
+    const book = await this.clobClient.getOrderBook(tokenId);
+    const bestBid = this.parsePositive(book.bids?.[0]?.price);
+    const bestAsk = this.parsePositive(book.asks?.[0]?.price);
+    return {
+      bestBid,
+      bestAsk,
+    };
   }
 
   async cancelEntryOpenOrders(tokenIds: TokenIds): Promise<unknown[]> {

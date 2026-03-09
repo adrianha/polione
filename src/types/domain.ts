@@ -45,6 +45,11 @@ export interface BotConfig {
   entryDepthUsageRatio: number;
   forceWindowFeeBuffer: number;
   forceWindowMinProfitPerShare: number;
+  entryContinuousRepriceEnabled: boolean;
+  entryContinuousRepriceIntervalMs: number;
+  entryContinuousMinPriceDelta: number;
+  entryContinuousMaxDurationSeconds: number;
+  entryContinuousMakerOffset: number;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;

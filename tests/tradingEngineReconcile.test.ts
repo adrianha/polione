@@ -36,6 +36,11 @@ const baseConfig: BotConfig = {
   entryDepthUsageRatio: 0.6,
   forceWindowFeeBuffer: 0.01,
   forceWindowMinProfitPerShare: 0.005,
+  entryContinuousRepriceEnabled: true,
+  entryContinuousRepriceIntervalMs: 1500,
+  entryContinuousMinPriceDelta: 0.002,
+  entryContinuousMaxDurationSeconds: 45,
+  entryContinuousMakerOffset: 0.001,
   requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
@@ -254,5 +259,56 @@ describe("trading engine entry reconciliation", () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("ORDER_SIZE");
     expect(result.orderSize).toBe(4.8);
+  });
+
+  it("computes filled average price from associated trades", async () => {
+    const clobClient = {
+      getOrder: async (_orderId: string) => ({
+        id: "order-1",
+        associate_trades: ["trade-1", "trade-2"],
+      }),
+      getTrades: async (params?: { id?: string }) => {
+        if (params?.id === "trade-1") {
+          return [{ id: "trade-1", price: "0.37", size: "2" }];
+        }
+        if (params?.id === "trade-2") {
+          return [{ id: "trade-2", price: "0.39", size: "3" }];
+        }
+        return [];
+      },
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    const result = await engine.getFilledAveragePriceForOrder({ orderID: "order-1" }, 0.46);
+    expect(result.avgPrice).toBe(0.382);
+    expect(result.filledSize).toBe(5);
+    expect(result.source).toBe("trades");
+    expect(result.orderId).toBe("order-1");
+  });
+
+  it("falls back to entry price when order id is missing", async () => {
+    const clobClient = {
+      getOrder: async (_orderId: string) => ({ id: "order-1" }),
+      getTrades: async (_params?: { id?: string }) => [],
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    const result = await engine.getFilledAveragePriceForOrder({ dryRun: true }, 0.46);
+    expect(result.avgPrice).toBe(0.46);
+    expect(result.filledSize).toBe(0);
+    expect(result.source).toBe("fallback");
+    expect(result.orderId).toBeNull();
   });
 });

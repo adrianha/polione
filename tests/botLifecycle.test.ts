@@ -42,6 +42,11 @@ const baseConfig: BotConfig = {
   entryDepthUsageRatio: 0.6,
   forceWindowFeeBuffer: 0.01,
   forceWindowMinProfitPerShare: 0.005,
+  entryContinuousRepriceEnabled: true,
+  entryContinuousRepriceIntervalMs: 10,
+  entryContinuousMinPriceDelta: 0.002,
+  entryContinuousMaxDurationSeconds: 45,
+  entryContinuousMakerOffset: 0.001,
   requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
@@ -82,6 +87,7 @@ const createBot = async () => {
   bot.tradingEngine = {
     getEntryPriceForAttempt: vi.fn((attempt: number) => 0.46 + attempt * 0.01),
     placePairedLimitBuysAtPrice: vi.fn(async () => ({ ok: true })),
+    placeSingleLimitBuyAtPrice: vi.fn(async () => ({ ok: true })),
     evaluateLiquidityForEntry: vi.fn(async () => ({
       allowed: true,
       orderSize: 5,
@@ -96,6 +102,13 @@ const createBot = async () => {
       attempts: 1,
       finalSummary: { upSize: 5, downSize: 5, differenceAbs: 0 },
     })),
+    getFilledAveragePriceForOrder: vi.fn(async () => ({
+      avgPrice: 0.46,
+      filledSize: 5,
+      source: "fallback",
+      orderId: null,
+    })),
+    getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
@@ -165,6 +178,36 @@ describe("bot lifecycle", () => {
 
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs continuous missing-leg maker repricing after one-leg fill", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "imbalanced",
+      attempts: 1,
+      finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
+    }));
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(bot.tradingEngine.getFilledAveragePriceForOrder).toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
