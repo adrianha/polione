@@ -54,6 +54,7 @@ export class PolyRelayerClient {
   private readonly relayClient?: RelayClient;
   private readonly builderConfig?: BuilderConfig;
   private readonly enabled: boolean;
+  private rateLimitedUntilMs: number | null = null;
 
   constructor(private readonly config: BotConfig) {
     this.enabled = Boolean(config.polymarketRelayerUrl && config.polygonRpc);
@@ -120,10 +121,78 @@ export class PolyRelayerClient {
     return this.enabled && Boolean(this.relayClient);
   }
 
+  getRateLimitedUntilMs(): number | null {
+    return this.rateLimitedUntilMs;
+  }
+
+  private isRateLimitedNow(): boolean {
+    return this.rateLimitedUntilMs !== null && Date.now() < this.rateLimitedUntilMs;
+  }
+
+  private parseResetSeconds(message: string): number | null {
+    const match = message.match(/resets in\s+(\d+)\s+seconds/i);
+    if (!match) {
+      return null;
+    }
+
+    const seconds = Number(match[1]);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return null;
+    }
+
+    return seconds;
+  }
+
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  private updateRateLimitFromError(error: unknown): void {
+    const message = this.formatError(error);
+    const has429 = /\b429\b/.test(message) || /too many requests/i.test(message) || /quota exceeded/i.test(message);
+    if (!has429) {
+      return;
+    }
+
+    const resetSeconds = this.parseResetSeconds(message);
+    const fallbackSeconds = 60;
+    const waitSeconds = resetSeconds ?? fallbackSeconds;
+    this.rateLimitedUntilMs = Date.now() + waitSeconds * 1000;
+  }
+
+  private async executeWithRateLimitGuard(
+    txs: Transaction[],
+    note: string,
+  ): Promise<RelayerTransactionResponse | { skipped: true; reason: string; retryAt: number | null } | null> {
+    if (!this.isAvailable()) {
+      return null;
+    }
+
+    if (this.isRateLimitedNow()) {
+      return {
+        skipped: true,
+        reason: "relayer_rate_limited",
+        retryAt: this.rateLimitedUntilMs,
+      };
+    }
+
+    try {
+      return await this.relayClient!.execute(txs, note);
+    } catch (error) {
+      this.updateRateLimitFromError(error);
+      throw error;
+    }
+  }
+
   async mergeTokens(
     conditionId: string,
     amount: bigint,
-  ): Promise<RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | null> {
+  ): Promise<
+    RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | { skipped: true; reason: string; retryAt: number | null } | null
+  > {
     if (!this.isAvailable()) {
       return null;
     }
@@ -155,13 +224,15 @@ export class PolyRelayerClient {
       };
     }
 
-    return this.relayClient!.execute([tx], "merge tokens");
+    return this.executeWithRateLimitGuard([tx], "merge tokens");
   }
 
   async redeemPositions(
     conditionId: string,
     indexSets: bigint[] = [1n, 2n],
-  ): Promise<RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | null> {
+  ): Promise<
+    RelayerTransactionResponse | { dryRun: true; intent: TradeIntent } | { skipped: true; reason: string; retryAt: number | null } | null
+  > {
     if (!this.isAvailable()) {
       return null;
     }
@@ -193,6 +264,6 @@ export class PolyRelayerClient {
       };
     }
 
-    return this.relayClient!.execute([tx], "redeem positions");
+    return this.executeWithRateLimitGuard([tx], "redeem positions");
   }
 }

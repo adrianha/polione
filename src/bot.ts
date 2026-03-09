@@ -177,9 +177,23 @@ export class PolymarketBot {
       this.relayerClient.isAvailable() &&
       !this.mergeAttemptedMarkets.has(currentConditionId)
     ) {
-      this.mergeAttemptedMarkets.add(currentConditionId);
       const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
       const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
+      const mergeObj = merge && typeof merge === "object" ? (merge as Record<string, unknown>) : null;
+      const isRateLimitedSkip = mergeObj?.skipped === true && mergeObj?.reason === "relayer_rate_limited";
+
+      if (isRateLimitedSkip) {
+        this.logger.warn(
+          {
+            conditionId: currentConditionId,
+            retryAt: mergeObj?.retryAt,
+          },
+          "Merge skipped: relayer is rate limited",
+        );
+        return;
+      }
+
+      this.mergeAttemptedMarkets.add(currentConditionId);
       this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
       return;
     }
