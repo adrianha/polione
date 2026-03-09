@@ -308,6 +308,19 @@ export class PolymarketBot {
 
       this.mergeAttemptedMarkets.add(currentConditionId);
       this.logger.info({ merge, conditionId: currentConditionId }, "Merge flow executed");
+      await this.notify({
+        title: "mergeEqualPositions executed",
+        severity: "info",
+        dedupeKey: `merge-success:${currentConditionId}`,
+        slug: currentMarket.slug,
+        conditionId: currentConditionId,
+        upTokenId: currentTokenIds.upTokenId,
+        downTokenId: currentTokenIds.downTokenId,
+        details: [
+          { key: "amount", value: amount },
+          { key: "secondsToClose", value: secondsToClose },
+        ],
+      });
       return;
     }
 
