@@ -21,6 +21,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "simulate:repricing": "tsx src/sim/repricingSimulation.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },

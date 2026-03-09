@@ -168,6 +168,7 @@ describe("bot lifecycle", () => {
     const { bot, tempDir } = await createBot();
 
     try {
+      bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
       const sleepSeconds = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
@@ -176,6 +177,7 @@ describe("bot lifecycle", () => {
 
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(1);
+      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -183,6 +185,7 @@ describe("bot lifecycle", () => {
 
   it("runs continuous missing-leg maker repricing after one-leg fill", async () => {
     const { bot, tempDir } = await createBot();
+    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
       status: "imbalanced",
       attempts: 1,
@@ -206,6 +209,7 @@ describe("bot lifecycle", () => {
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.getFilledAveragePriceForOrder).toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

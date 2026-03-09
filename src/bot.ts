@@ -19,6 +19,7 @@ export class PolymarketBot {
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
   private readonly inFlightConditions = new Set<string>();
+  private readonly notifiedEntryFilled = new Set<string>();
   private relayerFailoverActive = false;
 
   private readonly gammaClient: GammaClient;
@@ -143,6 +144,40 @@ export class PolymarketBot {
         { key: "orderSize", value: params.orderSize },
         { key: "attempt", value: params.attempt },
         { key: "secondsToClose", value: params.secondsToClose },
+        { key: "mode", value: params.mode },
+      ],
+    });
+  }
+
+  private async notifyEntryFilledOnce(params: {
+    conditionId: string;
+    slug?: string;
+    upTokenId: string;
+    downTokenId: string;
+    upSize: number;
+    downSize: number;
+    entryPrice?: number;
+    filledLegAvgPrice?: number;
+    mode: "reconcile" | "continuous-recovery" | "force-window";
+  }): Promise<void> {
+    if (this.notifiedEntryFilled.has(params.conditionId)) {
+      return;
+    }
+
+    this.notifiedEntryFilled.add(params.conditionId);
+    await this.notify({
+      title: "Entry filled and balanced",
+      severity: "info",
+      dedupeKey: `entry-filled:${params.conditionId}`,
+      slug: params.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.upTokenId,
+      downTokenId: params.downTokenId,
+      details: [
+        { key: "up", value: params.upSize },
+        { key: "down", value: params.downSize },
+        { key: "entryPrice", value: params.entryPrice },
+        { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
         { key: "mode", value: params.mode },
       ],
     });
@@ -996,6 +1031,16 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "balanced") {
+        await this.notifyEntryFilledOnce({
+          conditionId: entryConditionId,
+          slug: entryMarket.slug,
+          upTokenId: entryTokenIds.upTokenId,
+          downTokenId: entryTokenIds.downTokenId,
+          upSize: reconcile.finalSummary.upSize,
+          downSize: reconcile.finalSummary.downSize,
+          entryPrice,
+          mode: "reconcile",
+        });
         await this.markTrackedMarket(entryConditionId);
         this.logger.info(
           {
@@ -1028,6 +1073,17 @@ export class PolymarketBot {
           });
 
           if (recovery.status === "balanced") {
+            await this.notifyEntryFilledOnce({
+              conditionId: entryConditionId,
+              slug: entryMarket.slug,
+              upTokenId: entryTokenIds.upTokenId,
+              downTokenId: entryTokenIds.downTokenId,
+              upSize: recovery.finalSummary.upSize,
+              downSize: recovery.finalSummary.downSize,
+              entryPrice,
+              filledLegAvgPrice,
+              mode: "continuous-recovery",
+            });
             await this.markTrackedMarket(entryConditionId);
             this.logger.info(
               {
@@ -1055,6 +1111,17 @@ export class PolymarketBot {
             });
 
             if (forceRecovery.status === "balanced") {
+              await this.notifyEntryFilledOnce({
+                conditionId: entryConditionId,
+                slug: entryMarket.slug,
+                upTokenId: entryTokenIds.upTokenId,
+                downTokenId: entryTokenIds.downTokenId,
+                upSize: recovery.finalSummary.upSize,
+                downSize: recovery.finalSummary.downSize,
+                entryPrice,
+                filledLegAvgPrice,
+                mode: "force-window",
+              });
               await this.markTrackedMarket(entryConditionId);
               return this.config.positionRecheckSeconds;
             }
