@@ -327,6 +327,21 @@ export class PolymarketBot {
     if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
       const forceSell = await this.tradingEngine.forceSellAll(currentSummary, currentTokenIds);
       this.logger.info({ forceSell, conditionId: currentConditionId }, "Force sell flow executed");
+      await this.notify({
+        title: "Force sell executed",
+        severity: "info",
+        dedupeKey: `force-sell:${currentConditionId}:${Math.floor(Date.now() / 30000)}`,
+        slug: currentMarket.slug,
+        conditionId: currentConditionId,
+        upTokenId: currentTokenIds.upTokenId,
+        downTokenId: currentTokenIds.downTokenId,
+        details: [
+          { key: "up", value: currentSummary.upSize },
+          { key: "down", value: currentSummary.downSize },
+          { key: "diff", value: currentSummary.differenceAbs },
+          { key: "secondsToClose", value: secondsToClose },
+        ],
+      });
     }
   }
 
@@ -584,6 +599,21 @@ export class PolymarketBot {
               },
               "Flattened residual after unsuccessful late hedge completion",
             );
+            await this.notify({
+              title: "Force sell executed (post-hedge residual)",
+              severity: "warn",
+              dedupeKey: `post-hedge-force-sell:${entryConditionId}`,
+              slug: entryMarket.slug,
+              conditionId: entryConditionId,
+              upTokenId: entryTokenIds.upTokenId,
+              downTokenId: entryTokenIds.downTokenId,
+              details: [
+                { key: "up", value: postHedgeReconcile.finalSummary.upSize },
+                { key: "down", value: postHedgeReconcile.finalSummary.downSize },
+                { key: "diff", value: postHedgeReconcile.finalSummary.differenceAbs },
+                { key: "secondsToClose", value: secondsToClose },
+              ],
+            });
             return this.config.loopSleepSeconds;
           }
 
@@ -914,6 +944,30 @@ export class PolymarketBot {
       },
       "Bot initialized",
     );
+
+    await this.notify({
+      title: "Bot started",
+      severity: "info",
+      dedupeKey: `bot-start:${Math.floor(Date.now() / 60000)}`,
+      details: [
+        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+        { key: "chainId", value: this.config.chainId },
+        { key: "userAddress", value: userAddress },
+        { key: "positionsAddress", value: positionsAddress },
+        { key: "marketPrefix", value: this.config.marketSlugPrefix },
+        { key: "orderPrice", value: this.config.orderPrice },
+        { key: "orderSize", value: this.config.orderSize },
+        { key: "forceSellThresholdSec", value: this.config.forceSellThresholdSeconds },
+        { key: "loopSleepSec", value: this.config.loopSleepSeconds },
+        { key: "currentLoopSleepSec", value: this.config.currentLoopSleepSeconds },
+        { key: "positionRecheckSec", value: this.config.positionRecheckSeconds },
+        { key: "entryReconcileSec", value: this.config.entryReconcileSeconds },
+        { key: "entryRepriceAttempts", value: this.config.entryMaxRepriceAttempts },
+        { key: "entryMaxSpread", value: this.config.entryMaxSpread },
+        { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
+        { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
+      ],
+    });
 
     await this.updateMarketSnapshot();
     await Promise.all([
