@@ -35,7 +35,16 @@ const formatTelegramMessage = (params: NotificationPayload): string => {
 export const makeTelegramNotifications = (client: TelegramClient): NotificationsPort => ({
   send: (payload) =>
     Effect.tryPromise({
-      try: () => client.sendHtml(formatTelegramMessage(payload), payload.dedupeKey),
+      try: async () => {
+        if (!payload.title || payload.title.trim().length === 0) {
+          throw new Error("Notification payload title must be a non-empty string");
+        }
+        if (!payload.dedupeKey || payload.dedupeKey.trim().length === 0) {
+          throw new Error("Notification payload dedupeKey must be a non-empty string");
+        }
+
+        await client.sendHtml(formatTelegramMessage(payload), payload.dedupeKey);
+      },
       catch: (cause) => adapterError({ adapter: "TelegramClient", operation: "sendHtml", cause }),
     }),
 });

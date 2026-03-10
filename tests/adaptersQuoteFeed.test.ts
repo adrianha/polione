@@ -22,4 +22,16 @@ describe("effect adapter: quote feed", () => {
     expect(quote).toEqual({ bestBid: 0.45, bestAsk: 0.46 });
     expect(client.stop).toHaveBeenCalledTimes(1);
   });
+
+  it("rejects empty subscription lists", async () => {
+    const client = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      ensureSubscribed: vi.fn(),
+      getFreshQuote: vi.fn(() => null),
+    };
+
+    const adapter = makeQuoteFeed(client as never);
+    await expect(Effect.runPromise(adapter.ensureSubscribed([]))).rejects.toThrow();
+  });
 });

@@ -70,6 +70,27 @@ describe("effect adapters: market data + positions", () => {
     await expect(Effect.runPromise(adapter.findCurrentActiveMarket)).rejects.toThrow();
   });
 
+  it("fails when market utility fields are malformed", () => {
+    const gammaClient = {
+      getMarketBySlug: vi.fn(async () => null),
+    };
+    const adapter = makeMarketData({ config: baseConfig, gammaClient: gammaClient as never });
+
+    expect(() =>
+      adapter.getConditionId({
+        slug: "x",
+        conditionId: "",
+      } as never),
+    ).toThrow();
+
+    expect(() =>
+      adapter.getSecondsToMarketClose({
+        slug: "x",
+        endDate: "not-a-date",
+      } as never),
+    ).toThrow();
+  });
+
   it("validates positions payload", async () => {
     const dataClient = {
       getPositions: vi.fn(async () => [{ asset: "up", conditionId: "c1", size: "5" }]),
@@ -79,5 +100,14 @@ describe("effect adapters: market data + positions", () => {
     const positions = await Effect.runPromise(adapter.getPositions("0xabc", "c1"));
 
     expect(positions[0]?.size).toBe(5);
+  });
+
+  it("rejects negative position sizes", async () => {
+    const dataClient = {
+      getPositions: vi.fn(async () => [{ asset: "up", conditionId: "c1", size: -1 }]),
+    };
+
+    const adapter = makePositions(dataClient as never);
+    await expect(Effect.runPromise(adapter.getPositions("0xabc", "c1"))).rejects.toThrow();
   });
 });

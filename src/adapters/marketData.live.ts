@@ -79,6 +79,9 @@ const parseClobTokenIds = (raw: unknown): string[] => {
 const getTokenIds = (market: MarketRecord): TokenIds | null => {
   const clob = parseClobTokenIds(market.clobTokenIds);
   if (clob.length >= 2) {
+    if (clob[0].length === 0 || clob[1].length === 0) {
+      throw new Error("Gamma market clobTokenIds entries must be non-empty strings");
+    }
     return { upTokenId: clob[0], downTokenId: clob[1] };
   }
 
@@ -98,7 +101,13 @@ const getTokenIds = (market: MarketRecord): TokenIds | null => {
 
 const getConditionId = (market: MarketRecord): string | null => {
   const raw = market.conditionId ?? market.condition_id;
-  return typeof raw === "string" ? raw : null;
+  if (typeof raw !== "string") {
+    return null;
+  }
+  if (raw.length === 0) {
+    throw new Error("Gamma market condition ID must not be empty");
+  }
+  return raw;
 };
 
 const getSecondsToMarketClose = (market: MarketRecord): number | null => {
@@ -109,7 +118,7 @@ const getSecondsToMarketClose = (market: MarketRecord): number | null => {
 
   const unix = Math.floor(new Date(endDate).getTime() / 1000);
   if (!Number.isFinite(unix)) {
-    return null;
+    throw new Error("Gamma market end date must be a valid ISO string");
   }
 
   return unix - unixNow();

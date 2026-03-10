@@ -13,6 +13,21 @@ const validateSettlementResult = (value: unknown): unknown => {
     throw new Error("Settlement result must be an object or null");
   }
 
+  const record = value as Record<string, unknown>;
+  if (record.skipped === true && typeof record.reason !== "string") {
+    throw new Error("Settlement skipped result must include string reason");
+  }
+
+  if (record.meta !== undefined) {
+    if (!record.meta || typeof record.meta !== "object") {
+      throw new Error("Settlement result meta must be an object when present");
+    }
+    const meta = record.meta as Record<string, unknown>;
+    if (typeof meta.builderLabel !== "string") {
+      throw new Error("Settlement result meta.builderLabel must be a string when present");
+    }
+  }
+
   return value;
 };
 

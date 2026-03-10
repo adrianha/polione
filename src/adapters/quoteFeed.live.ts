@@ -19,6 +19,14 @@ export const makeQuoteFeed = (client: ClobWsClient): QuoteFeedPort => ({
   ensureSubscribed: (assetIds) =>
     Effect.try({
       try: () => {
+        if (!Array.isArray(assetIds) || assetIds.length === 0) {
+          throw new Error("QuoteFeed ensureSubscribed requires at least one asset ID");
+        }
+        for (const assetId of assetIds) {
+          if (typeof assetId !== "string" || assetId.length === 0) {
+            throw new Error("QuoteFeed asset IDs must be non-empty strings");
+          }
+        }
         client.ensureSubscribed(assetIds);
       },
       catch: (cause) => adapterError({ adapter: "ClobWsClient", operation: "ensureSubscribed", cause }),

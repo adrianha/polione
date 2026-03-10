@@ -19,6 +19,17 @@ describe("effect adapters: state + telegram", () => {
     expect(store.saveTrackedMarkets).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects invalid tracked market IDs", async () => {
+    const store = {
+      loadTrackedMarkets: vi.fn(async () => new Set([""])),
+      saveTrackedMarkets: vi.fn(async () => undefined),
+    };
+
+    const adapter = makeFileBotState(store as never);
+    await expect(Effect.runPromise(adapter.loadTrackedMarkets)).rejects.toThrow();
+    await expect(Effect.runPromise(adapter.saveTrackedMarkets(new Set(["ok", ""])))).rejects.toThrow();
+  });
+
   it("formats and sends telegram notification through effect port", async () => {
     const client = {
       sendHtml: vi.fn(async () => undefined),
@@ -41,5 +52,35 @@ describe("effect adapters: state + telegram", () => {
     expect(message).toContain("Bot started");
     expect(message).toContain("Market");
     expect(dedupeKey).toBe("start:1");
+  });
+
+  it("rejects notification payloads with empty title or dedupe key", async () => {
+    const client = {
+      sendHtml: vi.fn(async () => undefined),
+    };
+
+    const adapter = makeTelegramNotifications(client as never);
+
+    await expect(
+      Effect.runPromise(
+        adapter.send({
+          title: "",
+          severity: "info",
+          dedupeKey: "x",
+          details: [],
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      Effect.runPromise(
+        adapter.send({
+          title: "ok",
+          severity: "info",
+          dedupeKey: "",
+          details: [],
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });
