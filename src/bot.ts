@@ -1297,8 +1297,10 @@ export class PolymarketBot {
               reason: recovery.reason,
               summary: recovery.finalSummary,
             },
-            "Continuous missing-leg repricing did not restore balance before timeout",
+            "Continuous missing-leg repricing did not restore balance; skipping further paired repricing",
           );
+
+          return this.config.loopSleepSeconds;
         }
 
         this.logger.warn(

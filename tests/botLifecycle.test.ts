@@ -335,6 +335,32 @@ describe("bot lifecycle", () => {
     }
   });
 
+  it("does not re-run paired repricing after continuous recovery timeout", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "imbalanced",
+      attempts: 1,
+      finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
+    }));
+    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.config.entryContinuousMaxDurationSeconds = 0.001;
+    bot.sleepMs = vi.fn(async () => undefined);
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("entry recovery buys only residual imbalance amount", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
