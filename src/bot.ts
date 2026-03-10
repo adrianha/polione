@@ -18,6 +18,7 @@ export class PolymarketBot {
   private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
+  private readonly balancedOrderCleanupDone = new Set<string>();
   private readonly inFlightConditions = new Set<string>();
   private readonly notifiedEntryFilled = new Set<string>();
   private relayerFailoverActive = false;
@@ -183,6 +184,26 @@ export class PolymarketBot {
     });
   }
 
+  private async cancelEntryOrdersAfterBalance(
+    tokenIds: TokenIds,
+    context: { conditionId: string; path: string },
+  ): Promise<boolean> {
+    try {
+      await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        {
+          conditionId: context.conditionId,
+          path: context.path,
+          error,
+        },
+        "Failed to cancel residual entry orders after balance",
+      );
+      return false;
+    }
+  }
+
   private getRelayerMeta(result: unknown): { builderLabel?: string; failoverFrom?: string } | null {
     if (!result || typeof result !== "object") {
       return null;
@@ -325,18 +346,26 @@ export class PolymarketBot {
     missingAmount: number;
   } | null {
     if (summary.upSize > summary.downSize) {
+      const missingAmount = Number((summary.upSize - summary.downSize).toFixed(6));
+      if (missingAmount <= 0) {
+        return null;
+      }
       return {
         filledLegTokenId: tokenIds.upTokenId,
         missingLegTokenId: tokenIds.downTokenId,
-        missingAmount: Number((summary.upSize - summary.downSize).toFixed(6)),
+        missingAmount,
       };
     }
 
     if (summary.downSize > summary.upSize) {
+      const missingAmount = Number((summary.downSize - summary.upSize).toFixed(6));
+      if (missingAmount <= 0) {
+        return null;
+      }
       return {
         filledLegTokenId: tokenIds.downTokenId,
         missingLegTokenId: tokenIds.upTokenId,
-        missingAmount: Number((summary.downSize - summary.upSize).toFixed(6)),
+        missingAmount,
       };
     }
 
@@ -707,6 +736,10 @@ export class PolymarketBot {
     const positionsEqual = arePositionsEqual(currentSummary, this.config.positionEqualityTolerance);
     const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(currentMarket);
 
+    if (!positionsEqual) {
+      this.balancedOrderCleanupDone.delete(currentConditionId);
+    }
+
     this.logger.info(
       {
         conditionId: currentConditionId,
@@ -719,6 +752,16 @@ export class PolymarketBot {
       },
       "Position check",
     );
+
+    if (positionsEqual && currentSummary.upSize > 0 && !this.balancedOrderCleanupDone.has(currentConditionId)) {
+      const cleanupOk = await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
+        conditionId: currentConditionId,
+        path: "tracked-market:balanced-cleanup",
+      });
+      if (cleanupOk) {
+        this.balancedOrderCleanupDone.add(currentConditionId);
+      }
+    }
 
     if (
       positionsEqual &&
@@ -818,6 +861,10 @@ export class PolymarketBot {
       });
 
       if (recovery.status === "balanced") {
+        await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
+          conditionId: currentConditionId,
+          path: "tracked-market:continuous-recovery",
+        });
         await this.notifyEntryFilledOnce({
           conditionId: currentConditionId,
           slug: currentMarket.slug,
@@ -855,6 +902,10 @@ export class PolymarketBot {
         });
 
         if (forceRecovery.status === "balanced") {
+          await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
+            conditionId: currentConditionId,
+            path: "tracked-market:force-window",
+          });
           await this.notifyEntryFilledOnce({
             conditionId: currentConditionId,
             slug: currentMarket.slug,
@@ -899,6 +950,11 @@ export class PolymarketBot {
       if (recovery.status !== "balanced") {
         return;
       }
+
+      await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
+        conditionId: currentConditionId,
+        path: "tracked-market:force-window-existing",
+      });
 
       this.logger.info(
         { conditionId: currentConditionId, secondsToClose, summary: currentSummary },
@@ -1102,6 +1158,10 @@ export class PolymarketBot {
         });
 
         if (recovery.status === "balanced") {
+          await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+            conditionId: entryConditionId,
+            path: "entry-market:force-window",
+          });
           await this.markTrackedMarket(entryConditionId);
           return this.config.positionRecheckSeconds;
         }
@@ -1110,6 +1170,10 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "balanced") {
+        await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+          conditionId: entryConditionId,
+          path: "entry-market:reconcile",
+        });
         await this.notifyEntryFilledOnce({
           conditionId: entryConditionId,
           slug: entryMarket.slug,
@@ -1152,6 +1216,10 @@ export class PolymarketBot {
           });
 
           if (recovery.status === "balanced") {
+            await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+              conditionId: entryConditionId,
+              path: "entry-market:continuous-recovery",
+            });
             await this.notifyEntryFilledOnce({
               conditionId: entryConditionId,
               slug: entryMarket.slug,
@@ -1190,6 +1258,10 @@ export class PolymarketBot {
             });
 
             if (forceRecovery.status === "balanced") {
+              await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+                conditionId: entryConditionId,
+                path: "entry-market:force-window-from-recovery",
+              });
               await this.notifyEntryFilledOnce({
                 conditionId: entryConditionId,
                 slug: entryMarket.slug,

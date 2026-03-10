@@ -173,6 +173,115 @@ describe("bot lifecycle", () => {
     }
   });
 
+  it("cancels residual entry orders once when tracked market is balanced", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs balanced cleanup again after imbalance reappears", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.marketDiscovery.getSecondsToMarketClose = vi
+      .fn()
+      .mockReturnValueOnce(120)
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(120);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries balanced cleanup when cancel fails", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+    bot.tradingEngine.cancelEntryOpenOrders = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary cancel error"))
+      .mockResolvedValueOnce([]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("still reconciles immediate entries for current markets", async () => {
     const { bot, tempDir } = await createBot();
 
@@ -186,6 +295,7 @@ describe("bot lifecycle", () => {
 
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
       expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -218,6 +328,7 @@ describe("bot lifecycle", () => {
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.getFilledAveragePriceForOrder).toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
       expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -252,6 +363,30 @@ describe("bot lifecycle", () => {
 
       expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("entry residual below precision threshold does not place extra order", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "imbalanced",
+      attempts: 1,
+      finalSummary: { upSize: 5.0000004, downSize: 5, differenceAbs: 0.0000004 },
+    }));
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
