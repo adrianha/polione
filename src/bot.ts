@@ -14,11 +14,24 @@ import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
 
 export class PolymarketBot {
+  private static readonly RECOVERY_REARM_COOLDOWN_MS = 15_000;
+  private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
+
   private stopped = false;
   private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
   private readonly balancedOrderCleanupDone = new Set<string>();
+  private readonly balancedChecksByCondition = new Map<string, number>();
+  private readonly recentRecoveryPlacements = new Map<
+    string,
+    {
+      placedAtMs: number;
+      summary: PositionSummary;
+      missingLegTokenId: string;
+      price: number;
+    }
+  >();
   private readonly inFlightConditions = new Set<string>();
   private readonly notifiedEntryFilled = new Set<string>();
   private relayerFailoverActive = false;
@@ -386,6 +399,11 @@ export class PolymarketBot {
     return this.roundPrice(bounded);
   }
 
+  private didSummaryChange(previous: PositionSummary, current: PositionSummary): boolean {
+    const epsilon = 1e-6;
+    return Math.abs(previous.upSize - current.upSize) > epsilon || Math.abs(previous.downSize - current.downSize) > epsilon;
+  }
+
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
@@ -397,6 +415,7 @@ export class PolymarketBot {
     status: "balanced" | "placed" | "timeout" | "force-window" | "not-applicable";
     finalSummary: PositionSummary;
     lastPlacedPrice?: number;
+    missingLegTokenId?: string;
     iterations: number;
     reason?: string;
   }> {
@@ -495,6 +514,7 @@ export class PolymarketBot {
       finalSummary: latestSummary,
       iterations,
       lastPlacedPrice: nextPrice,
+      missingLegTokenId: imbalance.missingLegTokenId,
       reason: "Placed one missing-leg recovery order for this cycle",
     };
   }
@@ -713,9 +733,23 @@ export class PolymarketBot {
     const currentSummary = summarizePositions(currentPositions, currentTokenIds);
     const positionsEqual = arePositionsEqual(currentSummary, this.config.positionEqualityTolerance);
     const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(currentMarket);
+    const nowMs = Date.now();
+
+    const recentPlacement = this.recentRecoveryPlacements.get(currentConditionId);
+    if (recentPlacement) {
+      const changedSinceLastPlacement = this.didSummaryChange(recentPlacement.summary, currentSummary);
+      const placementExpired = nowMs - recentPlacement.placedAtMs >= PolymarketBot.RECOVERY_REARM_COOLDOWN_MS;
+      if (positionsEqual || changedSinceLastPlacement || placementExpired) {
+        this.recentRecoveryPlacements.delete(currentConditionId);
+      }
+    }
 
     if (!positionsEqual) {
       this.balancedOrderCleanupDone.delete(currentConditionId);
+      this.balancedChecksByCondition.delete(currentConditionId);
+    } else if (currentSummary.upSize > 0) {
+      const confirmations = (this.balancedChecksByCondition.get(currentConditionId) ?? 0) + 1;
+      this.balancedChecksByCondition.set(currentConditionId, confirmations);
     }
 
     this.logger.info(
@@ -747,6 +781,21 @@ export class PolymarketBot {
       this.relayerClient.isAvailable() &&
       !this.mergeAttemptedMarkets.has(currentConditionId)
     ) {
+      const balancedChecks = this.balancedChecksByCondition.get(currentConditionId) ?? 0;
+      if (balancedChecks < PolymarketBot.MERGE_BALANCE_CONFIRMATION_CHECKS) {
+        this.logger.info(
+          {
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            balancedChecks,
+            requiredChecks: PolymarketBot.MERGE_BALANCE_CONFIRMATION_CHECKS,
+            secondsToClose,
+          },
+          "Delaying merge until balance is stable across consecutive checks",
+        );
+        return;
+      }
+
       const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
       const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
       const mergeObj = merge && typeof merge === "object" ? (merge as unknown as Record<string, unknown>) : null;
@@ -813,6 +862,26 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
+      const placementLock = this.recentRecoveryPlacements.get(currentConditionId);
+      if (placementLock) {
+        this.logger.info(
+          {
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            up: currentSummary.upSize,
+            down: currentSummary.downSize,
+            diff: currentSummary.differenceAbs,
+            lastRecoveryPrice: placementLock.price,
+            missingLegTokenId: placementLock.missingLegTokenId,
+            cooldownMs: PolymarketBot.RECOVERY_REARM_COOLDOWN_MS,
+            elapsedMs: nowMs - placementLock.placedAtMs,
+            secondsToClose,
+          },
+          "Skipped recovery placement: waiting for position change after prior recovery order",
+        );
+        return;
+      }
+
       const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
       if (!imbalancePlan) {
         this.logger.info(
@@ -839,6 +908,7 @@ export class PolymarketBot {
       });
 
       if (recovery.status === "balanced") {
+        this.recentRecoveryPlacements.delete(currentConditionId);
         await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
           conditionId: currentConditionId,
           path: "tracked-market:continuous-recovery",
@@ -869,6 +939,7 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "force-window") {
+        this.recentRecoveryPlacements.delete(currentConditionId);
         const forceRecovery = await this.handleForceWindowImbalance({
           market: currentMarket,
           conditionId: currentConditionId,
@@ -900,6 +971,14 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "placed") {
+        if (recovery.lastPlacedPrice !== undefined && recovery.missingLegTokenId) {
+          this.recentRecoveryPlacements.set(currentConditionId, {
+            placedAtMs: nowMs,
+            summary: recovery.finalSummary,
+            missingLegTokenId: recovery.missingLegTokenId,
+            price: recovery.lastPlacedPrice,
+          });
+        }
         this.logger.info(
           {
             conditionId: currentConditionId,
