@@ -5,6 +5,7 @@ import {
   evaluateForceWindowHedge,
   getImbalancePlan,
 } from "../src/domain/recoveryPolicy.js";
+import { getSnapshotAgeMs, isSnapshotStale } from "../src/domain/marketPolicy.js";
 
 describe("domain policies", () => {
   it("computes imbalance plan for one-sided fills", () => {
@@ -76,5 +77,34 @@ describe("domain policies", () => {
         getConditionId: (market) => market.conditionId ?? null,
       })?.slug,
     ).toBe("current");
+  });
+
+  it("computes snapshot age and staleness with same thresholds", () => {
+    expect(getSnapshotAgeMs(null, 10_000)).toBeNull();
+    expect(getSnapshotAgeMs(8_000, 10_000)).toBe(2_000);
+
+    expect(
+      isSnapshotStale({
+        snapshotUpdatedAtMs: null,
+        loopSleepSeconds: 10,
+        nowMs: 10_000,
+      }),
+    ).toBe(true);
+
+    expect(
+      isSnapshotStale({
+        snapshotUpdatedAtMs: 9_000,
+        loopSleepSeconds: 10,
+        nowMs: 10_000,
+      }),
+    ).toBe(false);
+
+    expect(
+      isSnapshotStale({
+        snapshotUpdatedAtMs: 1,
+        loopSleepSeconds: 1,
+        nowMs: 2_100,
+      }),
+    ).toBe(true);
   });
 });

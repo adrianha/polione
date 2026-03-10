@@ -18,6 +18,9 @@ import {
   getImbalancePlan,
 } from "./domain/recoveryPolicy.js";
 import { selectEntryMarket } from "./domain/entryPolicy.js";
+import { getSnapshotAgeMs, isSnapshotStale } from "./domain/marketPolicy.js";
+import { runDiscoveryLoopEffect } from "./workflows/discovery.workflow.js";
+import { Effect } from "effect";
 
 export class PolymarketBot {
   private stopped = false;
@@ -286,20 +289,14 @@ export class PolymarketBot {
   }
 
   private getSnapshotAgeMs(): number | null {
-    if (this.snapshotUpdatedAtMs === null) {
-      return null;
-    }
-    return Date.now() - this.snapshotUpdatedAtMs;
+    return getSnapshotAgeMs(this.snapshotUpdatedAtMs);
   }
 
   private isSnapshotStale(): boolean {
-    const ageMs = this.getSnapshotAgeMs();
-    if (ageMs === null) {
-      return true;
-    }
-
-    const maxAgeMs = Math.max(this.config.loopSleepSeconds, 1) * 2000;
-    return ageMs > maxAgeMs;
+    return isSnapshotStale({
+      snapshotUpdatedAtMs: this.snapshotUpdatedAtMs,
+      loopSleepSeconds: this.config.loopSleepSeconds,
+    });
   }
 
   private async withConditionLock<T>(
@@ -1328,15 +1325,17 @@ export class PolymarketBot {
   }
 
   private async discoveryLoop(): Promise<void> {
-    while (!this.stopped) {
-      try {
-        await this.updateMarketSnapshot();
-      } catch (error) {
-        this.logger.error({ error }, "Discovery loop error");
-      }
-
-      await sleep(this.config.loopSleepSeconds);
-    }
+    await Effect.runPromise(
+      runDiscoveryLoopEffect({
+        loopSleepSeconds: this.config.loopSleepSeconds,
+        isStopped: () => this.stopped,
+        updateSnapshot: () => this.updateMarketSnapshot(),
+        onError: async (error) => {
+          this.logger.error({ error }, "Discovery loop error");
+        },
+        sleep: (seconds) => sleep(seconds),
+      }),
+    );
   }
 
   private async currentMarketLoop(positionsAddress: string): Promise<void> {
