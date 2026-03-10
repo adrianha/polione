@@ -302,66 +302,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("runs continuous missing-leg maker repricing after one-leg fill", async () => {
-    const { bot, tempDir } = await createBot();
-    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
-    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
-      status: "imbalanced",
-      attempts: 1,
-      finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
-    }));
-    bot.dataClient.getPositions = vi
-      .fn()
-      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
-      .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 5 },
-      ]);
-
-    try {
-      const sleepSeconds = await bot.processEntryMarket({
-        entryMarket: market,
-        currentConditionId: "cond-1",
-        positionsAddress: "0xabc",
-      });
-
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
-      expect(bot.tradingEngine.getFilledAveragePriceForOrder).toHaveBeenCalled();
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
-      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  it("does not re-run paired repricing after continuous recovery timeout", async () => {
-    const { bot, tempDir } = await createBot();
-    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
-      status: "imbalanced",
-      attempts: 1,
-      finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
-    }));
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
-    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
-    bot.config.entryContinuousMaxDurationSeconds = 0.001;
-    bot.sleepMs = vi.fn(async () => undefined);
-
-    try {
-      const sleepSeconds = await bot.processEntryMarket({
-        entryMarket: market,
-        currentConditionId: "cond-1",
-        positionsAddress: "0xabc",
-      });
-
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
-      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  it("entry recovery buys only residual imbalance amount", async () => {
+  it("defers one-leg entry imbalance handling to tracked-market flow", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
@@ -379,30 +320,6 @@ describe("bot lifecycle", () => {
         { asset: "up-token", conditionId: "cond-1", size: 5 },
         { asset: "down-token", conditionId: "cond-1", size: 5 },
       ]);
-
-    try {
-      const sleepSeconds = await bot.processEntryMarket({
-        entryMarket: market,
-        currentConditionId: "cond-1",
-        positionsAddress: "0xabc",
-      });
-
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  it("entry residual below precision threshold does not place extra order", async () => {
-    const { bot, tempDir } = await createBot();
-    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
-    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
-      status: "imbalanced",
-      attempts: 1,
-      finalSummary: { upSize: 5.0000004, downSize: 5, differenceAbs: 0.0000004 },
-    }));
 
     try {
       const sleepSeconds = await bot.processEntryMarket({
