@@ -21,6 +21,7 @@ export class PolymarketBot {
   private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
+  private readonly redeemAttemptedMarkets = new Set<string>();
   private readonly balancedOrderCleanupDone = new Set<string>();
   private readonly balancedChecksByCondition = new Map<string, number>();
   private readonly recentRecoveryPlacements = new Map<
@@ -783,6 +784,73 @@ export class PolymarketBot {
       },
       "Position check",
     );
+
+    if (this.relayerClient.isAvailable() && !this.redeemAttemptedMarkets.has(currentConditionId)) {
+      const hasRedeemablePosition = currentPositions.some((position) => position.redeemable === true);
+      if (hasRedeemablePosition) {
+        const redeem = await this.settlementService.redeemResolvedPositions(currentConditionId);
+        const redeemObj = redeem && typeof redeem === "object" ? (redeem as unknown as Record<string, unknown>) : null;
+        const isRateLimitedSkip = redeemObj?.skipped === true && redeemObj?.reason === "relayer_rate_limited";
+
+        if (isRateLimitedSkip) {
+          this.logger.warn(
+            {
+              conditionId: currentConditionId,
+              retryAt: redeemObj?.retryAt,
+            },
+            "Redeem skipped: relayer is rate limited",
+          );
+          await this.notify({
+            title: "Redeem skipped (relayer rate limited)",
+            severity: "warn",
+            dedupeKey: `redeem-rate-limit:${currentConditionId}`,
+            slug: currentMarket.slug,
+            conditionId: currentConditionId,
+            upTokenId: currentTokenIds.upTokenId,
+            downTokenId: currentTokenIds.downTokenId,
+            details: [
+              { key: "retryAt", value: redeemObj?.retryAt as string | number | undefined },
+              { key: "secondsToClose", value: secondsToClose },
+            ],
+          });
+          return;
+        }
+
+        const relayerMeta = this.getRelayerMeta(redeem);
+        await this.maybeNotifyRelayerFailover({
+          merge: redeem,
+          slug: currentMarket.slug,
+          conditionId: currentConditionId,
+          upTokenId: currentTokenIds.upTokenId,
+          downTokenId: currentTokenIds.downTokenId,
+        });
+
+        this.redeemAttemptedMarkets.add(currentConditionId);
+        this.logger.info(
+          {
+            redeem,
+            conditionId: currentConditionId,
+            relayerBuilder: relayerMeta?.builderLabel,
+            relayerFailoverFrom: relayerMeta?.failoverFrom,
+          },
+          "Redeem flow executed",
+        );
+        await this.notify({
+          title: "redeemResolvedPositions executed",
+          severity: "info",
+          dedupeKey: `redeem-success:${currentConditionId}`,
+          slug: currentMarket.slug,
+          conditionId: currentConditionId,
+          upTokenId: currentTokenIds.upTokenId,
+          downTokenId: currentTokenIds.downTokenId,
+          details: [
+            { key: "secondsToClose", value: secondsToClose },
+            { key: "builder", value: relayerMeta?.builderLabel },
+          ],
+        });
+        return;
+      }
+    }
 
     if (positionsEqual && currentSummary.upSize > 0 && !this.balancedOrderCleanupDone.has(currentConditionId)) {
       const cleanupOk = await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
