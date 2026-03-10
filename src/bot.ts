@@ -1001,7 +1001,7 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    this.logger.info(
+    this.logger.debug(
       {
         slug: entryMarket.slug,
         conditionId: entryConditionId,
@@ -1012,7 +1012,7 @@ export class PolymarketBot {
     );
 
     if (this.trackedMarkets.has(entryConditionId)) {
-      this.logger.info(
+      this.logger.debug(
         {
           conditionId: entryConditionId,
           slug: entryMarket.slug,
@@ -1026,7 +1026,7 @@ export class PolymarketBot {
     const requiredUsdcForBothLegs = maxEntryPrice * this.config.orderSize * 2;
     const currentUsdcBalance = await this.clobClient.getUsdcBalance();
     if (currentUsdcBalance < requiredUsdcForBothLegs) {
-      this.logger.warn(
+      this.logger.debug(
         {
           conditionId: entryConditionId,
           slug: entryMarket.slug,
