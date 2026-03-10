@@ -12,6 +12,12 @@ import { SettlementService } from "./services/settlement.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
 import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
+import {
+  computeMakerMissingLegPrice,
+  evaluateForceWindowHedge,
+  getImbalancePlan,
+} from "./domain/recoveryPolicy.js";
+import { selectEntryMarket } from "./domain/entryPolicy.js";
 
 export class PolymarketBot {
   private stopped = false;
@@ -313,81 +319,12 @@ export class PolymarketBot {
     }
   }
 
-  private evaluateForceWindowHedge(
-    entryPrice: number,
-    bestMissingAsk: number,
-  ): {
-    isProfitable: boolean;
-    maxHedgePrice: number;
-    expectedLockPnlPerShare: number;
-  } {
-    const maxHedgePrice = 1 - entryPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare;
-
-    const expectedLockPnlPerShare = 1 - entryPrice - bestMissingAsk - this.config.forceWindowFeeBuffer;
-
-    return {
-      isProfitable: expectedLockPnlPerShare >= this.config.forceWindowMinProfitPerShare,
-      maxHedgePrice,
-      expectedLockPnlPerShare,
-    };
-  }
-
   private roundPrice(price: number): number {
     return Number(price.toFixed(4));
   }
 
   private async sleepMs(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private getImbalancePlan(summary: PositionSummary, tokenIds: TokenIds): {
-    filledLegTokenId: string;
-    missingLegTokenId: string;
-    missingAmount: number;
-  } | null {
-    if (summary.upSize > summary.downSize) {
-      const missingAmount = Number((summary.upSize - summary.downSize).toFixed(6));
-      if (missingAmount <= 0) {
-        return null;
-      }
-      return {
-        filledLegTokenId: tokenIds.upTokenId,
-        missingLegTokenId: tokenIds.downTokenId,
-        missingAmount,
-      };
-    }
-
-    if (summary.downSize > summary.upSize) {
-      const missingAmount = Number((summary.downSize - summary.upSize).toFixed(6));
-      if (missingAmount <= 0) {
-        return null;
-      }
-      return {
-        filledLegTokenId: tokenIds.downTokenId,
-        missingLegTokenId: tokenIds.upTokenId,
-        missingAmount,
-      };
-    }
-
-    return null;
-  }
-
-  private computeMakerMissingLegPrice(params: {
-    bestBid: number;
-    bestAsk: number;
-    maxMissingPrice: number;
-  }): number {
-    const bestBid = Math.max(0, params.bestBid);
-    const bestAsk = Math.max(0, params.bestAsk);
-    const maxMissingPrice = Math.max(0, params.maxMissingPrice);
-    if (maxMissingPrice <= 0 || bestBid <= 0 || bestAsk <= 0) {
-      return 0;
-    }
-
-    const makerCandidate = bestBid + this.config.entryContinuousMakerOffset;
-    const nonCrossingCap = Math.max(0, bestAsk - this.config.entryContinuousMakerOffset);
-    const bounded = Math.min(maxMissingPrice, makerCandidate, nonCrossingCap);
-    return this.roundPrice(bounded);
   }
 
   private async runContinuousMissingLegRecovery(params: {
@@ -404,7 +341,7 @@ export class PolymarketBot {
     iterations: number;
     reason?: string;
   }> {
-    const initialImbalance = this.getImbalancePlan(params.initialSummary, params.tokenIds);
+    const initialImbalance = getImbalancePlan(params.initialSummary, params.tokenIds);
     if (!initialImbalance) {
       return {
         status: "not-applicable",
@@ -456,7 +393,7 @@ export class PolymarketBot {
         };
       }
 
-      const imbalance = this.getImbalancePlan(latestSummary, params.tokenIds);
+      const imbalance = getImbalancePlan(latestSummary, params.tokenIds);
       if (!imbalance) {
         return {
           status: "not-applicable",
@@ -482,10 +419,11 @@ export class PolymarketBot {
       }
 
       const top = await this.tradingEngine.getTopOfBook(imbalance.missingLegTokenId);
-      const nextPrice = this.computeMakerMissingLegPrice({
+      const nextPrice = computeMakerMissingLegPrice({
         bestBid: top.bestBid,
         bestAsk: top.bestAsk,
         maxMissingPrice,
+        entryContinuousMakerOffset: this.config.entryContinuousMakerOffset,
       });
 
       if (nextPrice <= 0) {
@@ -535,7 +473,12 @@ export class PolymarketBot {
     const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
 
     if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
-      const hedgeCheck = this.evaluateForceWindowHedge(entryPrice, bestMissingAsk);
+      const hedgeCheck = evaluateForceWindowHedge({
+        entryPrice,
+        bestMissingAsk,
+        forceWindowFeeBuffer: this.config.forceWindowFeeBuffer,
+        forceWindowMinProfitPerShare: this.config.forceWindowMinProfitPerShare,
+      });
 
       if (hedgeCheck.isProfitable) {
         const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
@@ -835,7 +778,7 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
-      const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
+      const imbalancePlan = getImbalancePlan(currentSummary, currentTokenIds);
       if (!imbalancePlan) {
         this.logger.info(
           {
@@ -961,23 +904,6 @@ export class PolymarketBot {
         "Recovered imbalanced current market inside force-sell window",
       );
     }
-  }
-
-  private selectEntryMarket(params: {
-    currentMarket: MarketRecord | null;
-    nextMarket: MarketRecord | null;
-    currentConditionId: string | null;
-  }): MarketRecord | null {
-    const { currentMarket, nextMarket, currentConditionId } = params;
-
-    if (nextMarket) {
-      const nextConditionId = this.marketDiscovery.getConditionId(nextMarket);
-      if (!currentConditionId || nextConditionId !== currentConditionId) {
-        return nextMarket;
-      }
-    }
-
-    return currentMarket;
   }
 
   private async processEntryMarket(params: {
@@ -1200,7 +1126,7 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "imbalanced" && !isFinalAttempt) {
-        const imbalancePlan = this.getImbalancePlan(reconcile.finalSummary, entryTokenIds);
+        const imbalancePlan = getImbalancePlan(reconcile.finalSummary, entryTokenIds);
         if (imbalancePlan) {
           const upFill = await this.tradingEngine.getFilledAveragePriceForOrder(paired.up, entryPrice);
           const downFill = await this.tradingEngine.getFilledAveragePriceForOrder(paired.down, entryPrice);
@@ -1528,10 +1454,11 @@ export class PolymarketBot {
         }
 
         const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
-        const entryMarket = this.selectEntryMarket({
+        const entryMarket = selectEntryMarket({
           currentMarket,
           nextMarket,
           currentConditionId,
+          getConditionId: (market) => this.marketDiscovery.getConditionId(market),
         });
 
         if (!entryMarket) {
