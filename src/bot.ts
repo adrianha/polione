@@ -291,6 +291,87 @@ export class PolymarketBot {
     this.clobWsClient.stop();
   }
 
+  async init(): Promise<{ userAddress: string; positionsAddress: string }> {
+    await this.clobClient.init();
+    this.clobWsClient.start();
+    const userAddress = this.clobClient.getSignerAddress();
+    const positionsAddress = this.config.funder ?? userAddress;
+
+    await this.loadPersistedTrackedMarkets();
+
+    this.logger.info(
+      {
+        dryRun: this.config.dryRun,
+        userAddress,
+        positionsAddress,
+        relayerEnabled: this.relayerClient.isAvailable(),
+        availableRelayerBuilders: this.relayerClient.getAvailableBuilderLabels(),
+        persistedTrackedMarketCount: this.trackedMarkets.size,
+        stateFilePath: this.config.stateFilePath,
+      },
+      "Bot initialized",
+    );
+
+    await this.notify({
+      title: "Bot started",
+      severity: "info",
+      dedupeKey: `bot-start:${Math.floor(Date.now() / 60000)}`,
+      details: [
+        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+        { key: "chainId", value: this.config.chainId },
+        { key: "userAddress", value: userAddress },
+        { key: "positionsAddress", value: positionsAddress },
+        { key: "marketPrefix", value: this.config.marketSlugPrefix },
+        { key: "orderPrice", value: this.config.orderPrice },
+        { key: "orderSize", value: this.config.orderSize },
+        { key: "forceSellThresholdSec", value: this.config.forceSellThresholdSeconds },
+        { key: "loopSleepSec", value: this.config.loopSleepSeconds },
+        { key: "currentLoopSleepSec", value: this.config.currentLoopSleepSeconds },
+        { key: "positionRecheckSec", value: this.config.positionRecheckSeconds },
+        { key: "entryReconcileSec", value: this.config.entryReconcileSeconds },
+        { key: "entryRepriceAttempts", value: this.config.entryMaxRepriceAttempts },
+        { key: "entryMaxSpread", value: this.config.entryMaxSpread },
+        { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
+        { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
+        { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },
+      ],
+    });
+
+    await this.updateMarketSnapshot();
+    return { userAddress, positionsAddress };
+  }
+
+  async runDiscovery(): Promise<void> {
+    await this.discoveryLoop();
+  }
+
+  async runCurrentMarket(positionsAddress: string): Promise<void> {
+    await this.currentMarketLoop(positionsAddress);
+  }
+
+  async runEntry(positionsAddress: string): Promise<void> {
+    await this.entryLoop(positionsAddress);
+  }
+
+  async runTelegram(): Promise<void> {
+    await this.telegramCommandLoop();
+  }
+
+  async finalize(): Promise<void> {
+    await this.notify({
+      title: "Bot stopped",
+      severity: "warn",
+      dedupeKey: `bot-stop:${Math.floor(Date.now() / 60000)}`,
+      details: [
+        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+        { key: "trackedMarketCount", value: this.trackedMarkets.size },
+        { key: "stateFilePath", value: this.config.stateFilePath },
+      ],
+    });
+
+    this.logger.info("Bot stopped");
+  }
+
   private getSnapshotAgeMs(): number | null {
     return getSnapshotAgeMs(this.snapshotUpdatedAtMs);
   }
@@ -1514,70 +1595,13 @@ export class PolymarketBot {
   }
 
   async runForever(): Promise<void> {
-    await this.clobClient.init();
-    this.clobWsClient.start();
-    const userAddress = this.clobClient.getSignerAddress();
-    const positionsAddress = this.config.funder ?? userAddress;
-
-    await this.loadPersistedTrackedMarkets();
-
-    this.logger.info(
-      {
-        dryRun: this.config.dryRun,
-        userAddress,
-        positionsAddress,
-        relayerEnabled: this.relayerClient.isAvailable(),
-        availableRelayerBuilders: this.relayerClient.getAvailableBuilderLabels(),
-        persistedTrackedMarketCount: this.trackedMarkets.size,
-        stateFilePath: this.config.stateFilePath,
-      },
-      "Bot initialized",
-    );
-
-    await this.notify({
-      title: "Bot started",
-      severity: "info",
-      dedupeKey: `bot-start:${Math.floor(Date.now() / 60000)}`,
-      details: [
-        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
-        { key: "chainId", value: this.config.chainId },
-        { key: "userAddress", value: userAddress },
-        { key: "positionsAddress", value: positionsAddress },
-        { key: "marketPrefix", value: this.config.marketSlugPrefix },
-        { key: "orderPrice", value: this.config.orderPrice },
-        { key: "orderSize", value: this.config.orderSize },
-        { key: "forceSellThresholdSec", value: this.config.forceSellThresholdSeconds },
-        { key: "loopSleepSec", value: this.config.loopSleepSeconds },
-        { key: "currentLoopSleepSec", value: this.config.currentLoopSleepSeconds },
-        { key: "positionRecheckSec", value: this.config.positionRecheckSeconds },
-        { key: "entryReconcileSec", value: this.config.entryReconcileSeconds },
-        { key: "entryRepriceAttempts", value: this.config.entryMaxRepriceAttempts },
-        { key: "entryMaxSpread", value: this.config.entryMaxSpread },
-        { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
-        { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
-        { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },
-      ],
-    });
-
-    await this.updateMarketSnapshot();
+    const { positionsAddress } = await this.init();
     await Promise.all([
       this.discoveryLoop(),
       this.currentMarketLoop(positionsAddress),
       this.entryLoop(positionsAddress),
       this.telegramCommandLoop(),
     ]);
-
-    await this.notify({
-      title: "Bot stopped",
-      severity: "warn",
-      dedupeKey: `bot-stop:${Math.floor(Date.now() / 60000)}`,
-      details: [
-        { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
-        { key: "trackedMarketCount", value: this.trackedMarkets.size },
-        { key: "stateFilePath", value: this.config.stateFilePath },
-      ],
-    });
-
-    this.logger.info("Bot stopped");
+    await this.finalize();
   }
 }
