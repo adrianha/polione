@@ -91,9 +91,9 @@ This block runs only when the current market condition is already in the tracked
     - conditions: positions are equal, UP size > 0, relayer available, merge not attempted for this condition
     - action: `SettlementService.mergeEqualPositions(...)`
     - note: merge attempts are tracked in-memory by condition (`mergeAttemptedMarkets`) and are not retried again in the same process once attempted
-  - Observe path:
+  - Continuous-recovery path:
     - conditions: positions are not equal and time to close is still greater than `FORCE_SELL_THRESHOLD_SECONDS`
-    - action: log only, no cancel/hedge/flatten yet
+    - action: run continuous maker-first missing-leg repricing until balanced, timeout, or force-window transition
   - Force-sell path:
     - conditions: positions are not equal and time to close <= `FORCE_SELL_THRESHOLD_SECONDS`
     - action: evaluate profitable missing-leg hedge first; otherwise cancel open entry orders and flatten
@@ -139,6 +139,7 @@ If all guards pass for a direct current-market entry:
   - max retries: `ENTRY_MAX_REPRICE_ATTEMPTS`
   - step size: `ENTRY_REPRICE_STEP`
   - hard cap: `ENTRY_MAX_PRICE`
+- Missing-leg recovery is not executed in `processEntryMarket`; imbalanced residuals are deferred to `processTrackedCurrentMarket`.
 - Near market close (`secondsToClose <= FORCE_SELL_THRESHOLD_SECONDS`), repricing attempts are disabled and final fallback is prioritized.
 - Inside force-sell window, if entry is imbalanced:
   - cancel open entry orders first,
@@ -150,9 +151,8 @@ If all guards pass for a direct current-market entry:
   - Persist condition ID in entered market state (`STATE_FILE_PATH`).
   - Sleep `POSITION_RECHECK_SECONDS`.
 - If final attempt remains imbalanced at reconcile timeout:
-  - Optionally cancel open entry orders for both legs (`ENTRY_CANCEL_OPEN_ORDERS=true`).
-  - Flatten residual exposure with existing market-sell behavior.
-  - Do not persist entered condition ID for that cycle.
+  - Keep residual exposure and emit imbalance warning/notification.
+  - Do not persist entered condition ID for that cycle; recovery is handled later by tracked-current processing.
 
 ### 5) Loop error handling and retry behavior
 

@@ -166,8 +166,9 @@ describe("bot lifecycle", () => {
       });
 
       expect(bot.tradingEngine.getTopOfBook).toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
-      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
+      expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -302,7 +303,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("runs continuous missing-leg maker repricing after one-leg fill", async () => {
+  it("does not run continuous missing-leg recovery during entry processing", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
@@ -310,14 +311,6 @@ describe("bot lifecycle", () => {
       attempts: 1,
       finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
     }));
-    bot.dataClient.getPositions = vi
-      .fn()
-      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
-      .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 5 },
-      ]);
-
     try {
       const sleepSeconds = await bot.processEntryMarket({
         entryMarket: market,
@@ -325,17 +318,17 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
-      expect(bot.tradingEngine.getFilledAveragePriceForOrder).toHaveBeenCalled();
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
-      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.getFilledAveragePriceForOrder).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("entry recovery buys only residual imbalance amount", async () => {
+  it("does not buy residual imbalance amount during entry processing", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
@@ -343,17 +336,6 @@ describe("bot lifecycle", () => {
       attempts: 1,
       finalSummary: { upSize: 5, downSize: 3, differenceAbs: 2 },
     }));
-    bot.dataClient.getPositions = vi
-      .fn()
-      .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 3 },
-      ])
-      .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 5 },
-      ]);
-
     try {
       const sleepSeconds = await bot.processEntryMarket({
         entryMarket: market,
@@ -361,9 +343,9 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

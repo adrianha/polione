@@ -133,13 +133,13 @@ Optional notifications:
 - Entered market condition IDs are persisted to `STATE_FILE_PATH`.
 - Persisted state prevents multiple paired entries into the same condition across restarts.
 - Direct current-market entries run an immediate entry reconciliation window.
-- If a direct current-market entry remains imbalanced, the bot can reprice and re-attempt paired entry before fallback flatten.
+- If a direct current-market entry remains imbalanced, the bot can reprice and re-attempt paired entry, then defer any missing-leg recovery to tracked-current processing.
 - Next-market entries are persisted immediately and left untouched until that market rolls into current.
-- When a tracked market becomes current, `processTrackedCurrentMarket` owns imbalance recovery.
-- Outside `FORCE_SELL_THRESHOLD_SECONDS`, an imbalanced current market is observed only.
+- When a tracked market becomes current, `processTrackedCurrentMarket` is the only place that runs missing-leg recovery.
+- Outside `FORCE_SELL_THRESHOLD_SECONDS`, tracked current markets can run continuous maker-first missing-leg recovery.
 - Inside the force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
-- After one-leg partial fill on current-market entry, bot can run a continuous maker-first missing-leg reprice loop using exact fill VWAP, while enforcing locked-profit cap (`UP + DOWN + buffers < 1`) and switching to force-window fallback near close.
+- Continuous missing-leg repricing (including force-window fallback) is handled in `processTrackedCurrentMarket`, not in `processEntryMarket`.
 - Telegram notifications use rich text with truncated IDs for readability and include market details.
 - Notifications are sent for non-success critical events and first successful paired placement per condition.
 - Relayer failover can switch from primary local builder creds to secondary local builder creds on confirmed rate-limit errors only, and sends a one-time Telegram alert per failover episode.
