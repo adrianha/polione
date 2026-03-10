@@ -404,10 +404,6 @@ export class PolymarketBot {
     return Number(price.toFixed(4));
   }
 
-  private async sleepMs(ms: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
@@ -441,102 +437,99 @@ export class PolymarketBot {
       };
     }
 
-    const deadlineMs = Date.now() + this.config.entryContinuousMaxDurationSeconds * 1000;
     let lastPlacedPrice: number | undefined;
     let latestSummary = params.initialSummary;
-    let iterations = 0;
+    const iterations = 1;
 
-    while (!this.stopped && Date.now() <= deadlineMs) {
-      iterations += 1;
-      const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(params.market);
-      if (secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
-        return {
-          status: "force-window",
-          finalSummary: latestSummary,
-          lastPlacedPrice,
-          iterations,
-          reason: "Reached force-sell window during continuous repricing",
-        };
-      }
-
-      const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
-      latestSummary = summarizePositions(positions, params.tokenIds);
-      if (
-        latestSummary.upSize > 0 &&
-        latestSummary.downSize > 0 &&
-        arePositionsEqual(latestSummary, this.config.positionEqualityTolerance)
-      ) {
-        return {
-          status: "balanced",
-          finalSummary: latestSummary,
-          lastPlacedPrice,
-          iterations,
-        };
-      }
-
-      const imbalance = getImbalancePlan(latestSummary, params.tokenIds);
-      if (!imbalance) {
-        return {
-          status: "not-applicable",
-          finalSummary: latestSummary,
-          lastPlacedPrice,
-          iterations,
-          reason: "Imbalance no longer present",
-        };
-      }
-
-      const maxMissingPrice = this.roundPrice(
-        1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare,
-      );
-
-      if (maxMissingPrice <= 0) {
-        return {
-          status: "timeout",
-          finalSummary: latestSummary,
-          lastPlacedPrice,
-          iterations,
-          reason: "Missing-leg profitability cap is non-positive",
-        };
-      }
-
-      const top = await this.tradingEngine.getTopOfBook(imbalance.missingLegTokenId);
-      const nextPrice = computeMakerMissingLegPrice({
-        bestBid: top.bestBid,
-        bestAsk: top.bestAsk,
-        maxMissingPrice,
-        entryContinuousMakerOffset: this.config.entryContinuousMakerOffset,
-      });
-
-      if (nextPrice <= 0) {
-        await this.sleepMs(this.config.entryContinuousRepriceIntervalMs);
-        continue;
-      }
-
-      if (
-        lastPlacedPrice !== undefined &&
-        Math.abs(nextPrice - lastPlacedPrice) < this.config.entryContinuousMinPriceDelta
-      ) {
-        await this.sleepMs(this.config.entryContinuousRepriceIntervalMs);
-        continue;
-      }
-
-      await this.tradingEngine.cancelEntryOpenOrders(params.tokenIds);
-      await this.tradingEngine.placeSingleLimitBuyAtPrice(
-        imbalance.missingLegTokenId,
-        nextPrice,
-        Number(imbalance.missingAmount.toFixed(6)),
-      );
-      lastPlacedPrice = nextPrice;
-
-      await this.sleepMs(this.config.entryContinuousRepriceIntervalMs);
+    if (this.stopped) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations: 0,
+        reason: "Bot is stopping",
+      };
     }
+
+    const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(params.market);
+    if (secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+      return {
+        status: "force-window",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations,
+        reason: "Reached force-sell window during continuous repricing",
+      };
+    }
+
+    const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
+    latestSummary = summarizePositions(positions, params.tokenIds);
+    if (latestSummary.upSize > 0 && latestSummary.downSize > 0 && arePositionsEqual(latestSummary, this.config.positionEqualityTolerance)) {
+      return {
+        status: "balanced",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations,
+      };
+    }
+
+    const imbalance = getImbalancePlan(latestSummary, params.tokenIds);
+    if (!imbalance) {
+      return {
+        status: "not-applicable",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations,
+        reason: "Imbalance no longer present",
+      };
+    }
+
+    const maxMissingPrice = this.roundPrice(
+      1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare,
+    );
+
+    if (maxMissingPrice <= 0) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations,
+        reason: "Missing-leg profitability cap is non-positive",
+      };
+    }
+
+    const top = await this.tradingEngine.getTopOfBook(imbalance.missingLegTokenId);
+    const nextPrice = computeMakerMissingLegPrice({
+      bestBid: top.bestBid,
+      bestAsk: top.bestAsk,
+      maxMissingPrice,
+      entryContinuousMakerOffset: this.config.entryContinuousMakerOffset,
+    });
+
+    if (nextPrice <= 0) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        lastPlacedPrice,
+        iterations,
+        reason: "Missing-leg quote not actionable",
+      };
+    }
+
+    await this.tradingEngine.cancelEntryOpenOrders(params.tokenIds);
+    await this.tradingEngine.placeSingleLimitBuyAtPrice(
+      imbalance.missingLegTokenId,
+      nextPrice,
+      Number(imbalance.missingAmount.toFixed(6)),
+    );
+    lastPlacedPrice = nextPrice;
 
     return {
       status: "timeout",
       finalSummary: latestSummary,
       lastPlacedPrice,
       iterations,
-      reason: "Continuous missing-leg repricing timeout",
+      reason: "Placed a single missing-leg recovery order",
     };
   }
 

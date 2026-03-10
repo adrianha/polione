@@ -145,7 +145,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("runs continuous recovery for one-sided current-market imbalance outside force window", async () => {
+  it("runs single-step recovery for one-sided current-market imbalance outside force window", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.dataClient.getPositions = vi
@@ -167,7 +167,7 @@ describe("bot lifecycle", () => {
 
       expect(bot.tradingEngine.getTopOfBook).toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
-      expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
+      expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
