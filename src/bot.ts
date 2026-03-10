@@ -1070,14 +1070,6 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "unchanged-price") {
-        if (recovery.lastPlacedPrice !== undefined && recovery.missingLegTokenId) {
-          this.recentRecoveryPlacements.set(currentConditionId, {
-            placedAtMs: nowMs,
-            summary: recovery.finalSummary,
-            missingLegTokenId: recovery.missingLegTokenId,
-            price: recovery.lastPlacedPrice,
-          });
-        }
         this.logger.info(
           {
             conditionId: currentConditionId,
@@ -1085,6 +1077,7 @@ export class PolymarketBot {
             summary: recovery.finalSummary,
             lastPlacedPrice: recovery.lastPlacedPrice,
             reason: recovery.reason,
+            cooldownMs: PolymarketBot.RECOVERY_REARM_COOLDOWN_MS,
             secondsToClose,
           },
           "Skipped recovery re-order because price is unchanged",
