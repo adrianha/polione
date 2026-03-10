@@ -411,8 +411,12 @@ export class PolymarketBot {
     tokenIds: TokenIds;
     initialSummary: PositionSummary;
     filledLegAvgPrice: number;
+    previousPlacement?: {
+      price: number;
+      missingLegTokenId: string;
+    };
   }): Promise<{
-    status: "balanced" | "placed" | "timeout" | "force-window" | "not-applicable";
+    status: "balanced" | "placed" | "unchanged-price" | "timeout" | "force-window" | "not-applicable";
     finalSummary: PositionSummary;
     lastPlacedPrice?: number;
     missingLegTokenId?: string;
@@ -499,6 +503,21 @@ export class PolymarketBot {
         finalSummary: latestSummary,
         iterations,
         reason: "Missing-leg maker price unavailable",
+      };
+    }
+
+    if (
+      params.previousPlacement &&
+      params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId &&
+      Math.abs(nextPrice - params.previousPlacement.price) < 1e-6
+    ) {
+      return {
+        status: "unchanged-price",
+        finalSummary: latestSummary,
+        iterations,
+        lastPlacedPrice: nextPrice,
+        missingLegTokenId: imbalance.missingLegTokenId,
+        reason: "Skipped re-order because recovery price is unchanged",
       };
     }
 
@@ -863,24 +882,6 @@ export class PolymarketBot {
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
       const placementLock = this.recentRecoveryPlacements.get(currentConditionId);
-      if (placementLock) {
-        this.logger.info(
-          {
-            conditionId: currentConditionId,
-            slug: currentMarket.slug,
-            up: currentSummary.upSize,
-            down: currentSummary.downSize,
-            diff: currentSummary.differenceAbs,
-            lastRecoveryPrice: placementLock.price,
-            missingLegTokenId: placementLock.missingLegTokenId,
-            cooldownMs: PolymarketBot.RECOVERY_REARM_COOLDOWN_MS,
-            elapsedMs: nowMs - placementLock.placedAtMs,
-            secondsToClose,
-          },
-          "Skipped recovery placement: waiting for position change after prior recovery order",
-        );
-        return;
-      }
 
       const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
       if (!imbalancePlan) {
@@ -905,6 +906,12 @@ export class PolymarketBot {
         tokenIds: currentTokenIds,
         initialSummary: currentSummary,
         filledLegAvgPrice: this.config.orderPrice,
+        previousPlacement: placementLock
+          ? {
+              price: placementLock.price,
+              missingLegTokenId: placementLock.missingLegTokenId,
+            }
+          : undefined,
       });
 
       if (recovery.status === "balanced") {
@@ -990,6 +997,29 @@ export class PolymarketBot {
             secondsToClose,
           },
           "Placed one missing-leg recovery order for tracked current market",
+        );
+        return;
+      }
+
+      if (recovery.status === "unchanged-price") {
+        if (recovery.lastPlacedPrice !== undefined && recovery.missingLegTokenId) {
+          this.recentRecoveryPlacements.set(currentConditionId, {
+            placedAtMs: nowMs,
+            summary: recovery.finalSummary,
+            missingLegTokenId: recovery.missingLegTokenId,
+            price: recovery.lastPlacedPrice,
+          });
+        }
+        this.logger.info(
+          {
+            conditionId: currentConditionId,
+            slug: currentMarket.slug,
+            summary: recovery.finalSummary,
+            lastPlacedPrice: recovery.lastPlacedPrice,
+            reason: recovery.reason,
+            secondsToClose,
+          },
+          "Skipped recovery re-order because price is unchanged",
         );
         return;
       }
