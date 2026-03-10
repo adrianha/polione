@@ -223,4 +223,68 @@ describe("bot lifecycle", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("entry recovery buys only residual imbalance amount", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "imbalanced",
+      attempts: 1,
+      finalSummary: { upSize: 5, downSize: 3, differenceAbs: 2 },
+    }));
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 3 },
+      ])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("recovery buys only residual imbalance amount", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 3 },
+      ])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 3 },
+      ])
+      .mockResolvedValueOnce([
+        { asset: "up-token", conditionId: "cond-1", size: 5 },
+        { asset: "down-token", conditionId: "cond-1", size: 5 },
+      ]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -319,24 +319,24 @@ export class PolymarketBot {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private getOneSidedImbalance(summary: PositionSummary, tokenIds: TokenIds): {
+  private getImbalancePlan(summary: PositionSummary, tokenIds: TokenIds): {
     filledLegTokenId: string;
     missingLegTokenId: string;
     missingAmount: number;
   } | null {
-    if (summary.upSize > 0 && summary.downSize <= 0) {
+    if (summary.upSize > summary.downSize) {
       return {
         filledLegTokenId: tokenIds.upTokenId,
         missingLegTokenId: tokenIds.downTokenId,
-        missingAmount: summary.upSize,
+        missingAmount: Number((summary.upSize - summary.downSize).toFixed(6)),
       };
     }
 
-    if (summary.downSize > 0 && summary.upSize <= 0) {
+    if (summary.downSize > summary.upSize) {
       return {
         filledLegTokenId: tokenIds.downTokenId,
         missingLegTokenId: tokenIds.upTokenId,
-        missingAmount: summary.downSize,
+        missingAmount: Number((summary.downSize - summary.upSize).toFixed(6)),
       };
     }
 
@@ -375,13 +375,13 @@ export class PolymarketBot {
     iterations: number;
     reason?: string;
   }> {
-    const initialImbalance = this.getOneSidedImbalance(params.initialSummary, params.tokenIds);
+    const initialImbalance = this.getImbalancePlan(params.initialSummary, params.tokenIds);
     if (!initialImbalance) {
       return {
         status: "not-applicable",
         finalSummary: params.initialSummary,
         iterations: 0,
-        reason: "Initial imbalance is not one-sided",
+        reason: "Initial position is not imbalanced",
       };
     }
 
@@ -427,14 +427,14 @@ export class PolymarketBot {
         };
       }
 
-      const imbalance = this.getOneSidedImbalance(latestSummary, params.tokenIds);
+      const imbalance = this.getImbalancePlan(latestSummary, params.tokenIds);
       if (!imbalance) {
         return {
           status: "not-applicable",
           finalSummary: latestSummary,
           lastPlacedPrice,
           iterations,
-          reason: "Imbalance no longer one-sided",
+          reason: "Imbalance no longer present",
         };
       }
 
@@ -792,8 +792,8 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
-      const oneSided = this.getOneSidedImbalance(currentSummary, currentTokenIds);
-      if (!oneSided) {
+      const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
+      if (!imbalancePlan) {
         this.logger.info(
           {
             conditionId: currentConditionId,
@@ -803,7 +803,7 @@ export class PolymarketBot {
             diff: currentSummary.differenceAbs,
             secondsToClose,
           },
-          "Observed non-one-sided imbalance outside force-sell window; no action taken",
+          "Observed non-recoverable imbalance outside force-sell window; no action taken",
         );
         return;
       }
@@ -1136,12 +1136,12 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "imbalanced" && !isFinalAttempt) {
-        const oneSided = this.getOneSidedImbalance(reconcile.finalSummary, entryTokenIds);
-        if (oneSided) {
+        const imbalancePlan = this.getImbalancePlan(reconcile.finalSummary, entryTokenIds);
+        if (imbalancePlan) {
           const upFill = await this.tradingEngine.getFilledAveragePriceForOrder(paired.up, entryPrice);
           const downFill = await this.tradingEngine.getFilledAveragePriceForOrder(paired.down, entryPrice);
           const filledLegAvgPrice =
-            oneSided.filledLegTokenId === entryTokenIds.upTokenId ? upFill.avgPrice : downFill.avgPrice;
+            imbalancePlan.filledLegTokenId === entryTokenIds.upTokenId ? upFill.avgPrice : downFill.avgPrice;
           const recovery = await this.runContinuousMissingLegRecovery({
             market: entryMarket,
             conditionId: entryConditionId,
