@@ -1594,14 +1594,4 @@ export class PolymarketBot {
     );
   }
 
-  async runForever(): Promise<void> {
-    const { positionsAddress } = await this.init();
-    await Promise.all([
-      this.discoveryLoop(),
-      this.currentMarketLoop(positionsAddress),
-      this.entryLoop(positionsAddress),
-      this.telegramCommandLoop(),
-    ]);
-    await this.finalize();
-  }
 }

@@ -8,10 +8,13 @@ This document describes the workflow currently implemented in the TypeScript bot
 START
   |
   v
-Load/validate config (src/config/env.ts)
+Load/validate config (src/config/env.ts -> src/config/effectConfig.ts)
   |
   v
 Construct bot + clients/services (src/bot.ts)
+  |
+  v
+Build Effect main program (src/app/mainEffect.ts)
   |
   v
 Init CLOB credentials (clobClient.init)
@@ -20,7 +23,20 @@ Init CLOB credentials (clobClient.init)
 Load persisted entered market state (STATE_FILE_PATH)
   |
   v
-MAIN LOOP (until stop signal)
+SUPERVISED WORKFLOWS (until stop signal)
+  |
+  +--> discovery workflow (src/workflows/discovery.workflow.ts)
+  |      - findCurrentActiveMarket()
+  |      - findNextActiveMarket()
+  |
+  +--> current-market workflow (src/workflows/currentMarket.workflow.ts)
+  |      - tracked condition processing and recovery
+  |
+  +--> entry workflow (src/workflows/entry.workflow.ts)
+  |      - entry candidate selection + guarded placement flow
+  |
+  `--> telegram workflow (src/workflows/telegram.workflow.ts)
+         - command polling + balance response
   |
   +--> Discover current market + next market
   |      - findCurrentActiveMarket()
@@ -63,8 +79,9 @@ MAIN LOOP (until stop signal)
 ### 1) Startup
 
 - `src/main.ts` loads config and creates logger.
-- `src/main.ts` creates `PolymarketBot` and registers SIGINT/SIGTERM handlers.
-- `src/bot.ts` initializes CLOB API credentials before entering the loop.
+- `src/main.ts` runs Effect program via `src/app/mainEffect.ts`.
+- `src/app/mainEffect.ts` creates `PolymarketBot`, registers SIGINT/SIGTERM handlers, and starts supervisor workflow.
+- `src/bot.ts` initializes CLOB API credentials in `init()` before workflows run.
 - `src/bot.ts` resolves addresses:
   - signer address from CLOB wallet
   - positions address = `FUNDER` when provided, otherwise signer address

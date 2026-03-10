@@ -54,11 +54,16 @@ bun run bot
 ## Implementation map
 
 - Entry point: `src/main.ts`
-- Main orchestration loop: `src/bot.ts`
-- Env parsing and validation: `src/config/env.ts`
+- Effect runtime entry: `src/app/mainEffect.ts`, `src/app/program.ts`, `src/app/runtime.ts`
+- Workflow orchestration: `src/workflows/*.workflow.ts`
+- Bot runtime surface + integrations: `src/bot.ts`
+- Env parsing and validation: `src/config/env.ts`, `src/config/effectConfig.ts`
 - CLOB adapter: `src/clients/clobClient.ts`
 - Relayer adapter: `src/clients/relayerClient.ts`
 - Market + positions APIs: `src/clients/gammaClient.ts`, `src/clients/dataClient.ts`
+- Effect service ports: `src/ports/*.ts`
+- Effect live adapters: `src/adapters/*.live.ts`
+- Pure domain policies: `src/domain/*.ts`
 - Services: `src/services/marketDiscovery.ts`, `src/services/positionManager.ts`, `src/services/tradingEngine.ts`, `src/services/settlement.ts`
 - State persistence: `src/utils/stateStore.ts`
 
