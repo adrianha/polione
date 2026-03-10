@@ -20,6 +20,9 @@ import {
 import { selectEntryMarket } from "./domain/entryPolicy.js";
 import { getSnapshotAgeMs, isSnapshotStale } from "./domain/marketPolicy.js";
 import { runDiscoveryLoopEffect } from "./workflows/discovery.workflow.js";
+import { runCurrentMarketLoopEffect } from "./workflows/currentMarket.workflow.js";
+import { runEntryLoopEffect } from "./workflows/entry.workflow.js";
+import { runTelegramLoopEffect } from "./workflows/telegram.workflow.js";
 import { Effect } from "effect";
 
 export class PolymarketBot {
@@ -1339,162 +1342,175 @@ export class PolymarketBot {
   }
 
   private async currentMarketLoop(positionsAddress: string): Promise<void> {
-    while (!this.stopped) {
-      try {
-        if (this.isSnapshotStale()) {
-          this.logger.warn(
-            { snapshotAgeMs: this.getSnapshotAgeMs() },
-            "Current market loop skipped: stale market snapshot",
-          );
-          await sleep(this.config.currentLoopSleepSeconds);
-          continue;
-        }
-
-        const currentMarket = this.latestCurrentMarket;
-        if (!currentMarket) {
-          await sleep(this.config.currentLoopSleepSeconds);
-          continue;
-        }
-
-        const currentConditionId = this.marketDiscovery.getConditionId(currentMarket);
-        if (currentConditionId && this.trackedMarkets.has(currentConditionId)) {
-          const locked = await this.withConditionLock(currentConditionId, async () => {
-            await this.processTrackedCurrentMarket({
-              currentMarket,
-              currentConditionId,
-              positionsAddress,
-            });
-          });
-
-          if (!locked.executed) {
-            this.logger.debug(
-              { conditionId: currentConditionId },
-              "Current market loop skipped: condition already in flight",
-            );
+    await Effect.runPromise(
+      runCurrentMarketLoopEffect({
+        isStopped: () => this.stopped,
+        isSnapshotStale: () => this.isSnapshotStale(),
+        getSnapshotAgeMs: () => this.getSnapshotAgeMs(),
+        sleep: (seconds) => sleep(seconds),
+        currentLoopSleepSeconds: this.config.currentLoopSleepSeconds,
+        getCurrentMarketConditionId: () => {
+          const currentMarket = this.latestCurrentMarket;
+          return currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+        },
+        isTrackedCondition: (conditionId) => this.trackedMarkets.has(conditionId),
+        withConditionLock: (conditionId, run) => this.withConditionLock(conditionId, run),
+        processTrackedCurrentMarket: async () => {
+          const currentMarket = this.latestCurrentMarket;
+          if (!currentMarket) {
+            return;
           }
-        }
-      } catch (error) {
-        this.logger.error({ error }, "Current market loop error");
+
+          const currentConditionId = this.marketDiscovery.getConditionId(currentMarket);
+          if (!currentConditionId) {
+            return;
+          }
+
+          await this.processTrackedCurrentMarket({
+            currentMarket,
+            currentConditionId,
+            positionsAddress,
+          });
+        },
+        onDebug: async (message, context) => {
+          this.logger.debug(context, message);
+        },
+        onWarn: async (message, context) => {
+          this.logger.warn(context, message);
+        },
+        onError: async (error) => {
+          this.logger.error({ error }, "Current market loop error");
+        },
+      }),
+    );
+  }
+
+  private async processTelegramCommands(): Promise<void> {
+    if (!this.telegramClient.isEnabled()) {
+      return;
+    }
+
+    const updates = await this.telegramClient.getUpdates(this.telegramOffset);
+    for (const update of updates) {
+      this.telegramOffset = update.update_id + 1;
+
+      const text = update.message?.text?.trim().toLowerCase();
+      const chatId = update.message?.chat?.id;
+      if (!text || typeof chatId !== "number") {
+        continue;
       }
 
-      await sleep(this.config.currentLoopSleepSeconds);
+      if (this.config.telegramChatId && String(chatId) !== this.config.telegramChatId) {
+        continue;
+      }
+
+      if (text === "/balance" || text === "/usdc" || text === "balance") {
+        try {
+          const balance = await this.clobClient.getUsdcBalance();
+          await this.notify({
+            title: "USDC balance",
+            severity: "info",
+            dedupeKey: `telegram-balance:${Math.floor(Date.now() / 5000)}`,
+            details: [
+              { key: "usdc", value: balance },
+              { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
+            ],
+          });
+        } catch (error) {
+          await this.notify({
+            title: "USDC balance check failed",
+            severity: "error",
+            dedupeKey: `telegram-balance-error:${Math.floor(Date.now() / 5000)}`,
+            details: [{ key: "error", value: error instanceof Error ? error.message : String(error) }],
+          });
+        }
+      }
     }
   }
 
   private async telegramCommandLoop(): Promise<void> {
-    while (!this.stopped) {
-      try {
-        if (!this.telegramClient.isEnabled()) {
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
-
-        const updates = await this.telegramClient.getUpdates(this.telegramOffset);
-        for (const update of updates) {
-          this.telegramOffset = update.update_id + 1;
-
-          const text = update.message?.text?.trim().toLowerCase();
-          const chatId = update.message?.chat?.id;
-          if (!text || typeof chatId !== "number") {
-            continue;
-          }
-
-          if (this.config.telegramChatId && String(chatId) !== this.config.telegramChatId) {
-            continue;
-          }
-
-          if (text === "/balance" || text === "/usdc" || text === "balance") {
-            try {
-              const balance = await this.clobClient.getUsdcBalance();
-              await this.notify({
-                title: "USDC balance",
-                severity: "info",
-                dedupeKey: `telegram-balance:${Math.floor(Date.now() / 5000)}`,
-                details: [
-                  { key: "usdc", value: balance },
-                  { key: "mode", value: this.config.dryRun ? "SAFE (DRY_RUN)" : "LIVE" },
-                ],
-              });
-            } catch (error) {
-              await this.notify({
-                title: "USDC balance check failed",
-                severity: "error",
-                dedupeKey: `telegram-balance-error:${Math.floor(Date.now() / 5000)}`,
-                details: [{ key: "error", value: error instanceof Error ? error.message : String(error) }],
-              });
-            }
-          }
-        }
-      } catch (error) {
-        this.logger.warn({ error }, "Telegram command loop error");
-      }
-
-      await sleep(Math.max(2, this.config.loopSleepSeconds));
-    }
+    await Effect.runPromise(
+      runTelegramLoopEffect({
+        isStopped: () => this.stopped,
+        loopSleepSeconds: this.config.loopSleepSeconds,
+        sleep: (seconds) => sleep(seconds),
+        processCommands: () => this.processTelegramCommands(),
+        onWarn: async (error) => {
+          this.logger.warn({ error }, "Telegram command loop error");
+        },
+      }),
+    );
   }
 
   private async entryLoop(positionsAddress: string): Promise<void> {
-    while (!this.stopped) {
-      let sleepSeconds = this.config.loopSleepSeconds;
+    await Effect.runPromise(
+      runEntryLoopEffect({
+        isStopped: () => this.stopped,
+        isSnapshotStale: () => this.isSnapshotStale(),
+        getSnapshotAgeMs: () => this.getSnapshotAgeMs(),
+        loopSleepSeconds: this.config.loopSleepSeconds,
+        sleep: (seconds) => sleep(seconds),
+        resolveEntryConditionId: () => {
+          const currentMarket = this.latestCurrentMarket;
+          const nextMarket = this.latestNextMarket;
 
-      try {
-        if (this.isSnapshotStale()) {
-          this.logger.warn({ snapshotAgeMs: this.getSnapshotAgeMs() }, "Entry loop skipped: stale market snapshot");
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
+          if (!currentMarket && !nextMarket) {
+            return null;
+          }
 
-        const currentMarket = this.latestCurrentMarket;
-        const nextMarket = this.latestNextMarket;
+          const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+          const entryMarket = selectEntryMarket({
+            currentMarket,
+            nextMarket,
+            currentConditionId,
+            getConditionId: (market) => this.marketDiscovery.getConditionId(market),
+          });
 
-        if (!currentMarket && !nextMarket) {
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
+          if (!entryMarket) {
+            return null;
+          }
 
-        const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
-        const entryMarket = selectEntryMarket({
-          currentMarket,
-          nextMarket,
-          currentConditionId,
-          getConditionId: (market) => this.marketDiscovery.getConditionId(market),
-        });
+          return this.marketDiscovery.getConditionId(entryMarket);
+        },
+        processEntry: async () => {
+          const currentMarket = this.latestCurrentMarket;
+          const nextMarket = this.latestNextMarket;
 
-        if (!entryMarket) {
-          this.logger.info("No market available for new entry");
-          await sleep(this.config.loopSleepSeconds);
-          continue;
-        }
+          if (!currentMarket && !nextMarket) {
+            return this.config.loopSleepSeconds;
+          }
 
-        const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
-        if (!entryConditionId) {
-          sleepSeconds = await this.processEntryMarket({
+          const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+          const entryMarket = selectEntryMarket({
+            currentMarket,
+            nextMarket,
+            currentConditionId,
+            getConditionId: (market) => this.marketDiscovery.getConditionId(market),
+          });
+
+          if (!entryMarket) {
+            this.logger.info("No market available for new entry");
+            return this.config.loopSleepSeconds;
+          }
+
+          return this.processEntryMarket({
             entryMarket,
             currentConditionId,
             positionsAddress,
           });
-        } else {
-          const locked = await this.withConditionLock(entryConditionId, async () => {
-            return this.processEntryMarket({
-              entryMarket,
-              currentConditionId,
-              positionsAddress,
-            });
-          });
-
-          if (!locked.executed) {
-            this.logger.debug({ conditionId: entryConditionId }, "Entry loop skipped: condition already in flight");
-            sleepSeconds = this.config.loopSleepSeconds;
-          } else {
-            sleepSeconds = locked.result ?? this.config.loopSleepSeconds;
-          }
-        }
-      } catch (error) {
-        this.logger.error({ error }, "Entry loop error");
-      }
-
-      await sleep(sleepSeconds);
-    }
+        },
+        withConditionLock: (conditionId, run) => this.withConditionLock(conditionId, run),
+        onDebug: async (message, context) => {
+          this.logger.debug(context, message);
+        },
+        onWarn: async (message, context) => {
+          this.logger.warn(context, message);
+        },
+        onError: async (error) => {
+          this.logger.error({ error }, "Entry loop error");
+        },
+      }),
+    );
   }
 
   async runForever(): Promise<void> {
