@@ -382,6 +382,38 @@ export class PolymarketBot {
     return null;
   }
 
+  private getConditionBuyCapacity(summary: PositionSummary): {
+    hasAnyExposure: boolean;
+    reachedCap: boolean;
+    remainingUp: number;
+    remainingDown: number;
+  } {
+    const cap = Math.max(0, this.config.orderSize);
+    const upSize = Math.max(0, summary.upSize);
+    const downSize = Math.max(0, summary.downSize);
+
+    return {
+      hasAnyExposure: upSize > 0 || downSize > 0,
+      reachedCap: upSize >= cap || downSize >= cap,
+      remainingUp: Number(Math.max(0, cap - upSize).toFixed(6)),
+      remainingDown: Number(Math.max(0, cap - downSize).toFixed(6)),
+    };
+  }
+
+  private getRemainingAllowanceForTokenId(
+    tokenId: string,
+    tokenIds: TokenIds,
+    buyCapacity: { remainingUp: number; remainingDown: number },
+  ): number {
+    if (tokenId === tokenIds.upTokenId) {
+      return buyCapacity.remainingUp;
+    }
+    if (tokenId === tokenIds.downTokenId) {
+      return buyCapacity.remainingDown;
+    }
+    return 0;
+  }
+
   private computeMakerMissingLegPrice(params: {
     bestBid: number;
     bestAsk: number;
@@ -456,6 +488,16 @@ export class PolymarketBot {
 
     const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
     const latestSummary = summarizePositions(positions, params.tokenIds);
+    const buyCapacity = this.getConditionBuyCapacity(latestSummary);
+    if (buyCapacity.reachedCap) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        iterations,
+        reason: "Strict cap reached on at least one leg; no further buys allowed",
+      };
+    }
+
     if (
       latestSummary.upSize > 0 &&
       latestSummary.downSize > 0 &&
@@ -523,10 +565,26 @@ export class PolymarketBot {
     }
 
     await this.tradingEngine.cancelEntryOpenOrders(params.tokenIds);
+    const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(
+      imbalance.missingLegTokenId,
+      params.tokenIds,
+      buyCapacity,
+    );
+    const cappedMissingAmount = Number(Math.min(imbalance.missingAmount, remainingForMissingLeg).toFixed(6));
+
+    if (cappedMissingAmount <= 0) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        iterations,
+        reason: "Missing-leg remaining allowance is zero; no further buys allowed",
+      };
+    }
+
     await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
       nextPrice,
-      Number(imbalance.missingAmount.toFixed(6)),
+      cappedMissingAmount,
     );
 
     return {
@@ -535,7 +593,10 @@ export class PolymarketBot {
       iterations,
       lastPlacedPrice: nextPrice,
       missingLegTokenId: imbalance.missingLegTokenId,
-      reason: "Placed one missing-leg recovery order for this cycle",
+      reason:
+        cappedMissingAmount < Number(imbalance.missingAmount.toFixed(6))
+          ? `Placed capped missing-leg recovery order for this cycle (${cappedMissingAmount}/${Number(imbalance.missingAmount.toFixed(6))})`
+          : "Placed one missing-leg recovery order for this cycle",
     };
   }
 
@@ -549,6 +610,38 @@ export class PolymarketBot {
     entryPrice: number;
   }): Promise<{ status: "balanced" | "imbalanced" | "failed" }> {
     const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } = params;
+    const buyCapacity = this.getConditionBuyCapacity(summary);
+    if (buyCapacity.reachedCap) {
+      const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
+      this.logger.warn(
+        {
+          conditionId,
+          cancelledOpenOrders,
+          summary,
+          orderSizeCap: this.config.orderSize,
+          secondsToClose,
+        },
+        "Inside force-sell window: strict cap reached, cancelled open orders and left residual imbalance",
+      );
+      await this.notify({
+        title: "Force-window hedge skipped (strict cap reached)",
+        severity: "warn",
+        dedupeKey: `force-window-cap-reached:${conditionId}`,
+        slug: market.slug,
+        conditionId,
+        upTokenId: tokenIds.upTokenId,
+        downTokenId: tokenIds.downTokenId,
+        details: [
+          { key: "orderSizeCap", value: this.config.orderSize },
+          { key: "up", value: summary.upSize },
+          { key: "down", value: summary.downSize },
+          { key: "diff", value: summary.differenceAbs },
+          { key: "secondsToClose", value: secondsToClose },
+        ],
+      });
+      return { status: "imbalanced" };
+    }
+
     const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
     const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
 
@@ -1175,6 +1268,28 @@ export class PolymarketBot {
       "Evaluating entry market",
     );
 
+    const existingPositions = await this.dataClient.getPositions(positionsAddress, entryConditionId);
+    const existingSummary = summarizePositions(existingPositions, entryTokenIds);
+    const buyCapacity = this.getConditionBuyCapacity(existingSummary);
+    if (buyCapacity.hasAnyExposure) {
+      this.logger.warn(
+        {
+          conditionId: entryConditionId,
+          slug: entryMarket.slug,
+          up: existingSummary.upSize,
+          down: existingSummary.downSize,
+          diff: existingSummary.differenceAbs,
+          orderSizeCap: this.config.orderSize,
+          reachedCap: buyCapacity.reachedCap,
+          remainingUp: buyCapacity.remainingUp,
+          remainingDown: buyCapacity.remainingDown,
+        },
+        "Skipped paired entry: existing exposure detected; handed off to tracked-market recovery",
+      );
+      await this.markTrackedMarket(entryConditionId);
+      return this.config.loopSleepSeconds;
+    }
+
     if (this.trackedMarkets.has(entryConditionId)) {
       this.logger.debug(
         {
@@ -1382,6 +1497,7 @@ export class PolymarketBot {
       }
 
       if (reconcile.status === "imbalanced") {
+        await this.markTrackedMarket(entryConditionId);
         this.logger.warn(
           {
             conditionId: entryConditionId,
@@ -1394,8 +1510,9 @@ export class PolymarketBot {
             entryPrice,
             secondsToClose,
             forceSellWindow: isInsideForceSellWindow,
+            handoff: "tracked-market-recovery",
           },
-          "Entry reconciliation ended imbalanced; keeping residual exposure",
+          "Entry reconciliation ended imbalanced; handing off to tracked-market recovery",
         );
         await this.notify({
           title: "Entry remains imbalanced",

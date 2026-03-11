@@ -150,11 +150,11 @@ describe("bot lifecycle", () => {
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.dataClient.getPositions = vi
       .fn()
-      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
-      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
       .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 5 },
+        { asset: "up-token", conditionId: "cond-1", size: 4 },
+        { asset: "down-token", conditionId: "cond-1", size: 4 },
       ]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
 
@@ -380,16 +380,16 @@ describe("bot lifecycle", () => {
     bot.dataClient.getPositions = vi
       .fn()
       .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 3 },
+        { asset: "up-token", conditionId: "cond-1", size: 4 },
+        { asset: "down-token", conditionId: "cond-1", size: 2 },
       ])
       .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 3 },
+        { asset: "up-token", conditionId: "cond-1", size: 4 },
+        { asset: "down-token", conditionId: "cond-1", size: 2 },
       ])
       .mockResolvedValueOnce([
-        { asset: "up-token", conditionId: "cond-1", size: 5 },
-        { asset: "down-token", conditionId: "cond-1", size: 5 },
+        { asset: "up-token", conditionId: "cond-1", size: 4 },
+        { asset: "down-token", conditionId: "cond-1", size: 4 },
       ]);
 
     try {
@@ -400,6 +400,102 @@ describe("bot lifecycle", () => {
       });
 
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not place another paired entry after imbalanced current-market reconcile", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "imbalanced",
+      attempts: 1,
+      finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
+    }));
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
+
+    try {
+      const first = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+      const second = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      const placedAfterFirstCall = (bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>).mock
+        .calls.length;
+
+      expect(first).toBe(baseConfig.loopSleepSeconds);
+      expect(second).toBe(baseConfig.loopSleepSeconds);
+      expect(placedAfterFirstCall).toBeGreaterThan(0);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(placedAfterFirstCall);
+      expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(placedAfterFirstCall);
+      expect(bot.trackedMarkets.has("cond-1")).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips paired entry and tracks market when exposure already exists", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 1 }]);
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.reconcilePairedEntry).not.toHaveBeenCalled();
+      expect(bot.trackedMarkets.has("cond-1")).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not place missing-leg recovery buy when one leg is at strict cap", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips force-window hedge buy when strict cap is already reached", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "down-token", conditionId: "cond-1", size: 5 }]);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.completeMissingLegForHedge).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
