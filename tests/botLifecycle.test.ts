@@ -114,7 +114,10 @@ const createBot = async () => {
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
   };
   bot.relayerClient = { isAvailable: vi.fn(() => false) };
-  bot.settlementService = { mergeEqualPositions: vi.fn(async () => ({ ok: true })) };
+  bot.settlementService = {
+    mergeEqualPositions: vi.fn(async () => ({ ok: true })),
+    redeemResolvedPositions: vi.fn(async () => ({ ok: true, meta: { builderLabel: "builder1" } })),
+  };
   bot.notify = vi.fn(async () => undefined);
   bot.notifyPlacementSuccessOnce = vi.fn(async () => undefined);
 
@@ -595,6 +598,52 @@ describe("bot lifecycle", () => {
 
       expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("redeems resolved positions for non-current redeemable conditions", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.relayerClient = {
+      isAvailable: vi.fn(() => true),
+      getAvailableBuilderLabels: vi.fn(() => ["builder1"]),
+    };
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "up-token", conditionId: "old-cond", size: 3, redeemable: true },
+      { asset: "down-token", conditionId: "old-cond", size: 1, redeemable: true },
+    ]);
+
+    try {
+      await bot.processRedeemablePositions("0xabc");
+
+      expect(bot.settlementService.redeemResolvedPositions).toHaveBeenCalledTimes(1);
+      expect(bot.settlementService.redeemResolvedPositions).toHaveBeenCalledWith("old-cond");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("backs off redeem attempts when relayer is rate limited", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.relayerClient = {
+      isAvailable: vi.fn(() => true),
+      getAvailableBuilderLabels: vi.fn(() => ["builder1"]),
+    };
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "up-token", conditionId: "old-cond", size: 3, redeemable: true },
+    ]);
+    bot.settlementService.redeemResolvedPositions = vi.fn(async () => ({
+      skipped: true,
+      reason: "relayer_rate_limited",
+      retryAt: Date.now() + 120_000,
+    }));
+
+    try {
+      await bot.processRedeemablePositions("0xabc");
+      await bot.processRedeemablePositions("0xabc");
+
+      expect(bot.settlementService.redeemResolvedPositions).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

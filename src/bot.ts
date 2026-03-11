@@ -25,12 +25,14 @@ type ConditionLifecycle =
 export class PolymarketBot {
   private static readonly RECOVERY_REARM_COOLDOWN_MS = 15_000;
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
+  private static readonly REDEEM_RETRY_BACKOFF_MS = 60_000;
+  private static readonly REDEEM_SUCCESS_COOLDOWN_MS = 5 * 60_000;
 
   private stopped = false;
   private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
-  private readonly redeemAttemptedMarkets = new Set<string>();
+  private readonly redeemNextAttemptAtByCondition = new Map<string, number>();
   private readonly balancedOrderCleanupDone = new Set<string>();
   private readonly balancedChecksByCondition = new Map<string, number>();
   private readonly recentRecoveryPlacements = new Map<
@@ -249,8 +251,8 @@ export class PolymarketBot {
     merge: unknown;
     slug?: string;
     conditionId: string;
-    upTokenId: string;
-    downTokenId: string;
+    upTokenId?: string;
+    downTokenId?: string;
   }): Promise<void> {
     const meta = this.getRelayerMeta(params.merge);
     if (!meta) {
@@ -280,6 +282,101 @@ export class PolymarketBot {
         { key: "toBuilder", value: meta.builderLabel },
       ],
     });
+  }
+
+  private shouldAttemptRedeem(conditionId: string, nowMs: number): boolean {
+    const nextAttemptAt = this.redeemNextAttemptAtByCondition.get(conditionId);
+    return nextAttemptAt === undefined || nowMs >= nextAttemptAt;
+  }
+
+  private recordRedeemNextAttempt(conditionId: string, nextAttemptAtMs: number): void {
+    this.redeemNextAttemptAtByCondition.set(conditionId, nextAttemptAtMs);
+  }
+
+  private async processRedeemablePositions(positionsAddress: string): Promise<void> {
+    if (!this.relayerClient.isAvailable()) {
+      return;
+    }
+
+    const positions = await this.dataClient.getPositions(positionsAddress);
+    const redeemableConditionIds = Array.from(
+      new Set(
+        positions
+          .filter((position) => position.redeemable === true && typeof position.conditionId === "string")
+          .map((position) => position.conditionId)
+          .filter((conditionId) => conditionId.length > 0),
+      ),
+    );
+
+    if (redeemableConditionIds.length === 0) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    for (const conditionId of redeemableConditionIds) {
+      if (!this.shouldAttemptRedeem(conditionId, nowMs)) {
+        continue;
+      }
+
+      const locked = await this.withConditionLock(conditionId, async () => {
+        const redeem = await this.settlementService.redeemResolvedPositions(conditionId);
+        const redeemObj = redeem && typeof redeem === "object" ? (redeem as unknown as Record<string, unknown>) : null;
+        const isRateLimitedSkip = redeemObj?.skipped === true && redeemObj?.reason === "relayer_rate_limited";
+
+        if (isRateLimitedSkip) {
+          const retryAtRaw = redeemObj?.retryAt;
+          const retryAtMs =
+            typeof retryAtRaw === "number" && Number.isFinite(retryAtRaw)
+              ? retryAtRaw
+              : nowMs + PolymarketBot.REDEEM_RETRY_BACKOFF_MS;
+          this.recordRedeemNextAttempt(conditionId, retryAtMs);
+
+          this.logger.warn(
+            {
+              conditionId,
+              retryAt: retryAtRaw,
+            },
+            "Redeem skipped: relayer is rate limited",
+          );
+          await this.notify({
+            title: "Redeem skipped (relayer rate limited)",
+            severity: "warn",
+            dedupeKey: `redeem-rate-limit:${conditionId}`,
+            conditionId,
+            details: [{ key: "retryAt", value: retryAtRaw as string | number | undefined }],
+          });
+          return;
+        }
+
+        this.recordRedeemNextAttempt(conditionId, nowMs + PolymarketBot.REDEEM_SUCCESS_COOLDOWN_MS);
+        const relayerMeta = this.getRelayerMeta(redeem);
+        await this.maybeNotifyRelayerFailover({
+          merge: redeem,
+          conditionId,
+        });
+
+        this.logger.info(
+          {
+            redeem,
+            conditionId,
+            relayerBuilder: relayerMeta?.builderLabel,
+            relayerFailoverFrom: relayerMeta?.failoverFrom,
+          },
+          "Redeem flow executed",
+        );
+        await this.notify({
+          title: "redeemResolvedPositions executed",
+          severity: "info",
+          dedupeKey: `redeem-success:${conditionId}`,
+          conditionId,
+          details: [{ key: "builder", value: relayerMeta?.builderLabel }],
+        });
+      });
+
+      if (!locked.executed) {
+        this.logger.debug({ conditionId }, "Redeem loop skipped condition: already in flight");
+      }
+    }
   }
 
   private async markTrackedMarket(conditionId: string): Promise<void> {
@@ -896,73 +993,6 @@ export class PolymarketBot {
       },
       "Position check",
     );
-
-    if (this.relayerClient.isAvailable() && !this.redeemAttemptedMarkets.has(currentConditionId)) {
-      const hasRedeemablePosition = currentPositions.some((position) => position.redeemable === true);
-      if (hasRedeemablePosition) {
-        const redeem = await this.settlementService.redeemResolvedPositions(currentConditionId);
-        const redeemObj = redeem && typeof redeem === "object" ? (redeem as unknown as Record<string, unknown>) : null;
-        const isRateLimitedSkip = redeemObj?.skipped === true && redeemObj?.reason === "relayer_rate_limited";
-
-        if (isRateLimitedSkip) {
-          this.logger.warn(
-            {
-              conditionId: currentConditionId,
-              retryAt: redeemObj?.retryAt,
-            },
-            "Redeem skipped: relayer is rate limited",
-          );
-          await this.notify({
-            title: "Redeem skipped (relayer rate limited)",
-            severity: "warn",
-            dedupeKey: `redeem-rate-limit:${currentConditionId}`,
-            slug: currentMarket.slug,
-            conditionId: currentConditionId,
-            upTokenId: currentTokenIds.upTokenId,
-            downTokenId: currentTokenIds.downTokenId,
-            details: [
-              { key: "retryAt", value: redeemObj?.retryAt as string | number | undefined },
-              { key: "secondsToClose", value: secondsToClose },
-            ],
-          });
-          return;
-        }
-
-        const relayerMeta = this.getRelayerMeta(redeem);
-        await this.maybeNotifyRelayerFailover({
-          merge: redeem,
-          slug: currentMarket.slug,
-          conditionId: currentConditionId,
-          upTokenId: currentTokenIds.upTokenId,
-          downTokenId: currentTokenIds.downTokenId,
-        });
-
-        this.redeemAttemptedMarkets.add(currentConditionId);
-        this.logger.info(
-          {
-            redeem,
-            conditionId: currentConditionId,
-            relayerBuilder: relayerMeta?.builderLabel,
-            relayerFailoverFrom: relayerMeta?.failoverFrom,
-          },
-          "Redeem flow executed",
-        );
-        await this.notify({
-          title: "redeemResolvedPositions executed",
-          severity: "info",
-          dedupeKey: `redeem-success:${currentConditionId}`,
-          slug: currentMarket.slug,
-          conditionId: currentConditionId,
-          upTokenId: currentTokenIds.upTokenId,
-          downTokenId: currentTokenIds.downTokenId,
-          details: [
-            { key: "secondsToClose", value: secondsToClose },
-            { key: "builder", value: relayerMeta?.builderLabel },
-          ],
-        });
-        return;
-      }
-    }
 
     if (positionsEqual && currentSummary.upSize > 0 && !this.balancedOrderCleanupDone.has(currentConditionId)) {
       const cleanupOk = await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
@@ -1809,6 +1839,18 @@ export class PolymarketBot {
     }
   }
 
+  private async redeemLoop(positionsAddress: string): Promise<void> {
+    while (!this.stopped) {
+      try {
+        await this.processRedeemablePositions(positionsAddress);
+      } catch (error) {
+        this.logger.error({ error }, "Redeem loop error");
+      }
+
+      await sleep(this.config.loopSleepSeconds);
+    }
+  }
+
   async runForever(): Promise<void> {
     await this.clobClient.init();
     this.clobWsClient.start();
@@ -1860,6 +1902,7 @@ export class PolymarketBot {
       this.discoveryLoop(),
       this.currentMarketLoop(positionsAddress),
       this.entryLoop(positionsAddress),
+      this.redeemLoop(positionsAddress),
       this.telegramCommandLoop(),
     ]);
 
