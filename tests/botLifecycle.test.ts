@@ -500,4 +500,103 @@ describe("bot lifecycle", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("reprices current-market paired entry after imbalanced reconcile", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => []);
+    bot.tradingEngine.reconcilePairedEntry = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "imbalanced",
+        attempts: 1,
+        finalSummary: { upSize: 5, downSize: 3, differenceAbs: 2 },
+        reason: "partial fills",
+      })
+      .mockResolvedValueOnce({
+        status: "balanced",
+        attempts: 1,
+        finalSummary: { upSize: 5, downSize: 5, differenceAbs: 0 },
+      });
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(2);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenNthCalledWith(
+        1,
+        { upTokenId: "up-token", downTokenId: "down-token" },
+        0.46,
+        5,
+      );
+      const secondCallArgs = (bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>).mock.calls[1];
+      expect(secondCallArgs?.[0]).toEqual({ upTokenId: "up-token", downTokenId: "down-token" });
+      expect(secondCallArgs?.[1]).toBeCloseTo(0.47, 10);
+      expect(secondCallArgs?.[2]).toBe(5);
+      expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(2);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses single attempt inside force window and does not reprice", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => []);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
+    bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
+      status: "balanced",
+      attempts: 1,
+      finalSummary: { upSize: 5, downSize: 5, differenceAbs: 0 },
+    }));
+
+    try {
+      const sleepSeconds = await bot.processEntryMarket({
+        entryMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledWith(
+        { upTokenId: "up-token", downTokenId: "down-token" },
+        0.46,
+        5,
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips missing-leg reorder when computed recovery price is unchanged", async () => {
+    const { bot, tempDir } = await createBot();
+    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
+
+    bot.recentRecoveryPlacements.set("cond-1", {
+      placedAtMs: Date.now(),
+      summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
+      missingLegTokenId: "down-token",
+      price: 0.35,
+    });
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
