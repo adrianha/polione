@@ -181,8 +181,6 @@ describe("clob websocket client", () => {
   });
 
   it("expires stale quotes based on max age", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const logger = createLogger();
     const client = new ClobWsClient(baseConfig, logger as never);
 
@@ -200,12 +198,20 @@ describe("clob websocket client", () => {
 
     expect(client.getFreshQuote("asset-2")).toEqual({ bestBid: 0.2, bestAsk: 0.22 });
 
-    vi.advanceTimersByTime(baseConfig.wsQuotesMaxAgeMs + 1);
+    const quotes = (client as unknown as { quotes: Map<string, { bestBid: number; bestAsk: number; updatedAtMs: number }> })
+      .quotes;
+    const current = quotes.get("asset-2");
+    expect(current).toBeDefined();
+    quotes.set("asset-2", {
+      bestBid: current!.bestBid,
+      bestAsk: current!.bestAsk,
+      updatedAtMs: Date.now() - (baseConfig.wsQuotesMaxAgeMs + 1),
+    });
+
     expect(client.getFreshQuote("asset-2")).toBeNull();
   });
 
-  it("reconnects after close and re-subscribes", () => {
-    vi.useFakeTimers();
+  it("reconnects after close and re-subscribes", async () => {
     const logger = createLogger();
     const config = { ...baseConfig, wsReconnectDelayMs: 500 };
     const client = new ClobWsClient(config, logger as never);
@@ -215,7 +221,7 @@ describe("clob websocket client", () => {
     firstSocket.emitOpen();
 
     firstSocket.close();
-    vi.advanceTimersByTime(500);
+    await new Promise((resolve) => setTimeout(resolve, config.wsReconnectDelayMs + 10));
 
     expect(MockWebSocket.instances.length).toBe(2);
     const secondSocket = MockWebSocket.instances[1];
