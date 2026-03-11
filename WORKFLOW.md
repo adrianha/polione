@@ -49,7 +49,7 @@ MAIN LOOP (until stop signal)
   +--> Place paired limit buys (UP + DOWN)
   |      - next-market entry: persist condition immediately and leave untouched until rollover
   |      - direct current-market entry: reconcile fills for ENTRY_RECONCILE_SECONDS
-  |      - if direct current-market entry stays imbalanced: reprice paired entry (bounded attempts)
+  |      - if direct current-market entry stays imbalanced: defer missing-leg recovery to tracked-current loop
   |      - final current-market fallback near close: optional profitable hedge, else flatten exposure
   |      - if balanced: persist tracked condition ID, sleep POSITION_RECHECK_SECONDS
   |
@@ -129,18 +129,9 @@ If all guards pass for a next-market entry:
 If all guards pass for a direct current-market entry:
 
 - Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
-- Before each entry attempt, run liquidity gate from order books:
-  - spread cap: `ENTRY_MAX_SPREAD`
-  - depth band above entry price: `ENTRY_DEPTH_PRICE_BAND`
-  - depth usage ratio for adaptive order size: `ENTRY_DEPTH_USAGE_RATIO`
-  - minimum acceptable adaptive size: `ORDER_SIZE`
 - Reconcile fill status via `TradingEngine.reconcilePairedEntry(...)` for `ENTRY_RECONCILE_SECONDS`.
-- If imbalanced, retry paired entry at incrementally higher bounded price levels:
-  - max retries: `ENTRY_MAX_REPRICE_ATTEMPTS`
-  - step size: `ENTRY_REPRICE_STEP`
-  - hard cap: `ENTRY_MAX_PRICE`
 - Missing-leg recovery is not executed in `processEntryMarket`; imbalanced residuals are deferred to `processTrackedCurrentMarket`.
-- Near market close (`secondsToClose <= FORCE_SELL_THRESHOLD_SECONDS`), repricing attempts are disabled and final fallback is prioritized.
+- Near market close (`secondsToClose <= FORCE_SELL_THRESHOLD_SECONDS`), force-window fallback is prioritized.
 - Inside force-sell window, if entry is imbalanced:
   - cancel open entry orders first,
   - evaluate missing-leg best ask against profitable hedge threshold:
@@ -150,7 +141,7 @@ If all guards pass for a direct current-market entry:
 - If balanced within tolerance:
   - Persist condition ID in entered market state (`STATE_FILE_PATH`).
   - Sleep `POSITION_RECHECK_SECONDS`.
-- If final attempt remains imbalanced at reconcile timeout:
+- If reconciliation remains imbalanced at timeout:
   - Keep residual exposure and emit imbalance warning/notification.
   - Do not persist entered condition ID for that cycle; recovery is handled later by tracked-current processing.
 

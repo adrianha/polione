@@ -34,12 +34,6 @@ const baseConfig: BotConfig = {
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,
   entryCancelOpenOrders: true,
-  entryMaxRepriceAttempts: 2,
-  entryRepriceStep: 0.01,
-  entryMaxPrice: 0.5,
-  entryMaxSpread: 0.03,
-  entryDepthPriceBand: 0.02,
-  entryDepthUsageRatio: 0.6,
   forceWindowFeeBuffer: 0.01,
   forceWindowMinProfitPerShare: 0.005,
   entryContinuousRepriceEnabled: true,
@@ -85,18 +79,8 @@ const createBot = async () => {
   bot.clobClient = { getUsdcBalance: vi.fn(async () => 100) };
   bot.dataClient = { getPositions: vi.fn(async () => []) };
   bot.tradingEngine = {
-    getEntryPriceForAttempt: vi.fn((attempt: number) => 0.46 + attempt * 0.01),
     placePairedLimitBuysAtPrice: vi.fn(async () => ({ ok: true })),
     placeSingleLimitBuyAtPrice: vi.fn(async () => ({ ok: true })),
-    evaluateLiquidityForEntry: vi.fn(async () => ({
-      allowed: true,
-      orderSize: 5,
-      reason: undefined,
-      upSpread: 0.01,
-      downSpread: 0.01,
-      upDepth: 10,
-      downDepth: 10,
-    })),
     reconcilePairedEntry: vi.fn(async () => ({
       status: "balanced",
       attempts: 1,
@@ -504,22 +488,15 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("reprices current-market paired entry after imbalanced reconcile", async () => {
+  it("does one current-market paired entry attempt before sleeping on no fills", async () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => []);
-    bot.tradingEngine.reconcilePairedEntry = vi
-      .fn()
-      .mockResolvedValueOnce({
-        status: "failed",
-        attempts: 1,
-        finalSummary: { upSize: 0, downSize: 0, differenceAbs: 0 },
-        reason: "no fills",
-      })
-      .mockResolvedValueOnce({
-        status: "balanced",
-        attempts: 1,
-        finalSummary: { upSize: 5, downSize: 5, differenceAbs: 0 },
-      });
+    bot.tradingEngine.reconcilePairedEntry = vi.fn().mockResolvedValueOnce({
+      status: "failed",
+      attempts: 1,
+      finalSummary: { upSize: 0, downSize: 0, differenceAbs: 0 },
+      reason: "no fills",
+    });
 
     try {
       const sleepSeconds = await bot.processEntryMarket({
@@ -528,20 +505,14 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
-      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(2);
-      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenNthCalledWith(
-        1,
+      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledWith(
         { upTokenId: "up-token", downTokenId: "down-token" },
         0.46,
         5,
       );
-      const secondCallArgs = (bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>).mock.calls[1];
-      expect(secondCallArgs?.[0]).toEqual({ upTokenId: "up-token", downTokenId: "down-token" });
-      expect(secondCallArgs?.[1]).toBeCloseTo(0.47, 10);
-      expect(secondCallArgs?.[2]).toBe(5);
-      expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(2);
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
+      expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

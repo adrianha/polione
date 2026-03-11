@@ -176,11 +176,6 @@ export class TradingEngine {
     return fallback;
   }
 
-  getEntryPriceForAttempt(attempt: number): number {
-    const stepped = this.config.orderPrice + this.config.entryRepriceStep * Math.max(0, attempt);
-    return Math.min(this.config.entryMaxPrice, Number(stepped.toFixed(4)));
-  }
-
   private parsePositive(value: unknown): number {
     const parsed = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -189,119 +184,9 @@ export class TradingEngine {
     return parsed;
   }
 
-  private getBestBidAsk(book: OrderBookSummary): { bestBid: number; bestAsk: number; spread: number } {
-    const bestBid = this.parsePositive(book.bids?.[0]?.price);
-    const bestAsk = this.parsePositive(book.asks?.[0]?.price);
-    if (bestBid <= 0 || bestAsk <= 0 || bestAsk < bestBid) {
-      return { bestBid, bestAsk, spread: Number.POSITIVE_INFINITY };
-    }
-    return { bestBid, bestAsk, spread: bestAsk - bestBid };
-  }
-
-  private getAskDepthWithinBand(book: OrderBookSummary, maxPrice: number): number {
-    let depth = 0;
-    const asks = Array.isArray(book.asks) ? book.asks : [];
-    for (const level of asks) {
-      const price = this.parsePositive(level.price);
-      const size = this.parsePositive(level.size);
-      if (price <= 0 || size <= 0) {
-        continue;
-      }
-      if (price > maxPrice) {
-        break;
-      }
-      depth += size;
-    }
-    return depth;
-  }
-
   private getBestAsk(book: OrderBookSummary): number {
     const ask = this.parsePositive(book.asks?.[0]?.price);
     return ask > 0 ? ask : Number.POSITIVE_INFINITY;
-  }
-
-  async evaluateLiquidityForEntry(
-    tokenIds: TokenIds,
-    entryPrice: number,
-  ): Promise<{
-    allowed: boolean;
-    orderSize: number;
-    reason?: string;
-    upSpread?: number;
-    downSpread?: number;
-    upDepth?: number;
-    downDepth?: number;
-  }> {
-    this.clobWsClient?.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
-
-    const upWs = this.clobWsClient?.getFreshQuote(tokenIds.upTokenId) ?? null;
-    const downWs = this.clobWsClient?.getFreshQuote(tokenIds.downTokenId) ?? null;
-
-    if (upWs && downWs) {
-      const upSpread = upWs.bestAsk - upWs.bestBid;
-      const downSpread = downWs.bestAsk - downWs.bestBid;
-
-      if (upSpread > this.config.entryMaxSpread || downSpread > this.config.entryMaxSpread) {
-        return {
-          allowed: false,
-          orderSize: 0,
-          reason: "Spread too wide",
-          upSpread,
-          downSpread,
-        };
-      }
-    }
-
-    const [upBook, downBook] = await Promise.all([
-      this.clobClient.getOrderBook(tokenIds.upTokenId),
-      this.clobClient.getOrderBook(tokenIds.downTokenId),
-    ]);
-
-    const upTop = this.getBestBidAsk(upBook);
-    const downTop = this.getBestBidAsk(downBook);
-    const upInvalidTop = !Number.isFinite(upTop.spread);
-    const downInvalidTop = !Number.isFinite(downTop.spread);
-    const upTopTooWide = !upInvalidTop && upTop.spread > this.config.entryMaxSpread;
-    const downTopTooWide = !downInvalidTop && downTop.spread > this.config.entryMaxSpread;
-
-    if (upTopTooWide || downTopTooWide) {
-      return {
-        allowed: false,
-        orderSize: 0,
-        reason: "Spread too wide",
-        upSpread: upTop.spread,
-        downSpread: downTop.spread,
-      };
-    }
-
-    const depthMaxPrice = Math.min(1, entryPrice + this.config.entryDepthPriceBand);
-    const upDepth = this.getAskDepthWithinBand(upBook, depthMaxPrice);
-    const downDepth = this.getAskDepthWithinBand(downBook, depthMaxPrice);
-
-    const maxPairDepth = Math.min(upDepth, downDepth);
-    const depthBoundOrderSize = maxPairDepth * this.config.entryDepthUsageRatio;
-    const adaptiveOrderSize = Number(Math.min(this.config.orderSize, depthBoundOrderSize).toFixed(4));
-
-    if (adaptiveOrderSize < this.config.orderSize) {
-      return {
-        allowed: false,
-        orderSize: adaptiveOrderSize,
-        reason: "Insufficient depth for ORDER_SIZE",
-        upSpread: upTop.spread,
-        downSpread: downTop.spread,
-        upDepth,
-        downDepth,
-      };
-    }
-
-    return {
-      allowed: true,
-      orderSize: adaptiveOrderSize,
-      upSpread: upTop.spread,
-      downSpread: downTop.spread,
-      upDepth,
-      downDepth,
-    };
   }
 
   async getBestAskPrice(tokenId: string): Promise<number> {

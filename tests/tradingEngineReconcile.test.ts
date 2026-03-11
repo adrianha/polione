@@ -28,12 +28,6 @@ const baseConfig: BotConfig = {
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,
   entryCancelOpenOrders: true,
-  entryMaxRepriceAttempts: 2,
-  entryRepriceStep: 0.01,
-  entryMaxPrice: 0.5,
-  entryMaxSpread: 0.03,
-  entryDepthPriceBand: 0.02,
-  entryDepthUsageRatio: 0.6,
   forceWindowFeeBuffer: 0.01,
   forceWindowMinProfitPerShare: 0.005,
   entryContinuousRepriceEnabled: true,
@@ -166,98 +160,6 @@ describe("trading engine entry reconciliation", () => {
 
     expect(result.status).toBe("imbalanced");
     expect(sold).toEqual([]);
-  });
-
-  it("computes repriced entry levels with max cap", () => {
-    const clobClient = {
-      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
-      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
-      placeLimitOrdersBatch: async (_params: unknown) => [],
-    };
-    const dataClient = {
-      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
-    };
-
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
-    expect(engine.getEntryPriceForAttempt(0)).toBe(0.46);
-    expect(engine.getEntryPriceForAttempt(1)).toBe(0.47);
-    expect(engine.getEntryPriceForAttempt(9)).toBe(0.5);
-  });
-
-  it("rejects liquidity when spread is wider than gate", async () => {
-    const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({
-        bids: [{ price: "0.40", size: "100" }],
-        asks: [{ price: "0.50", size: "100" }],
-      }),
-      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
-      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
-      placeLimitOrdersBatch: async (_params: unknown) => [],
-    };
-    const dataClient = {
-      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
-    };
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
-
-    const result = await engine.evaluateLiquidityForEntry(tokenIds, 0.46);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("Spread too wide");
-  });
-
-  it("does not reject solely on invalid top spread sentinel", async () => {
-    const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({
-        bids: [],
-        asks: [{ price: "0.45", size: "10" }],
-      }),
-      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
-      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
-      placeLimitOrdersBatch: async (_params: unknown) => [],
-    };
-    const dataClient = {
-      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
-    };
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
-
-    const result = await engine.evaluateLiquidityForEntry(tokenIds, 0.45);
-    expect(result.allowed).toBe(true);
-    expect(result.orderSize).toBe(5);
-  });
-
-  it("adapts order size from depth and usage ratio", async () => {
-    const clobClient = {
-      getOrderBook: async (tokenId: string) => {
-        if (tokenId === "up-token") {
-          return {
-            bids: [{ price: "0.45", size: "100" }],
-            asks: [
-              { price: "0.46", size: "4" },
-              { price: "0.47", size: "4" },
-              { price: "0.49", size: "100" },
-            ],
-          };
-        }
-        return {
-          bids: [{ price: "0.45", size: "100" }],
-          asks: [
-            { price: "0.46", size: "8" },
-            { price: "0.47", size: "8" },
-          ],
-        };
-      },
-      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
-      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
-      placeLimitOrdersBatch: async (_params: unknown) => [],
-    };
-    const dataClient = {
-      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
-    };
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
-
-    const result = await engine.evaluateLiquidityForEntry(tokenIds, 0.46);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("ORDER_SIZE");
-    expect(result.orderSize).toBe(4.8);
   });
 
   it("computes filled average price from associated trades", async () => {

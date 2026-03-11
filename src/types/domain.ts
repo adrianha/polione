@@ -37,12 +37,6 @@ export interface BotConfig {
   entryReconcileSeconds: number;
   entryReconcilePollSeconds: number;
   entryCancelOpenOrders: boolean;
-  entryMaxRepriceAttempts: number;
-  entryRepriceStep: number;
-  entryMaxPrice: number;
-  entryMaxSpread: number;
-  entryDepthPriceBand: number;
-  entryDepthUsageRatio: number;
   forceWindowFeeBuffer: number;
   forceWindowMinProfitPerShare: number;
   entryContinuousRepriceEnabled: boolean;

@@ -16,7 +16,6 @@ import { sleep } from "./utils/time.js";
 type ConditionLifecycle =
   | "new"
   | "entry-pending"
-  | "entry-repricing"
   | "recovery-pending"
   | "force-window"
   | "balanced"
@@ -1358,8 +1357,7 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    const maxEntryPrice = this.tradingEngine.getEntryPriceForAttempt(this.config.entryMaxRepriceAttempts);
-    const requiredUsdcForBothLegs = maxEntryPrice * this.config.orderSize * 2;
+    const requiredUsdcForBothLegs = this.config.orderPrice * this.config.orderSize * 2;
     const currentUsdcBalance = await this.clobClient.getUsdcBalance();
     if (currentUsdcBalance < requiredUsdcForBothLegs) {
       this.logger.debug(
@@ -1381,7 +1379,7 @@ export class PolymarketBot {
 
     if (!isCurrentMarketEntry) {
       this.transitionConditionLifecycle(entryConditionId, "entry-pending");
-      const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
+      const entryPrice = this.config.orderPrice;
       const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
         entryTokenIds,
         entryPrice,
@@ -1418,205 +1416,111 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    const maxRepriceAttempts = isInsideForceSellWindow ? 0 : this.config.entryMaxRepriceAttempts;
-    this.transitionConditionLifecycle(entryConditionId, isInsideForceSellWindow ? "force-window" : "entry-repricing");
+    const entryPrice = this.config.orderPrice;
+    this.transitionConditionLifecycle(entryConditionId, isInsideForceSellWindow ? "force-window" : "entry-pending");
 
-    for (let attempt = 0; attempt <= maxRepriceAttempts; attempt += 1) {
-      const entryPrice = this.tradingEngine.getEntryPriceForAttempt(attempt);
-      const liquidity = await this.tradingEngine.evaluateLiquidityForEntry(entryTokenIds, entryPrice);
-      if (!liquidity.allowed) {
-        this.logger.warn(
-          {
-            conditionId: entryConditionId,
-            attempt,
-            entryPrice,
-            reason: liquidity.reason,
-            upSpread: liquidity.upSpread,
-            downSpread: liquidity.downSpread,
-            upDepth: liquidity.upDepth,
-            downDepth: liquidity.downDepth,
-            secondsToClose,
-            forceSellThresholdSeconds: this.config.forceSellThresholdSeconds,
-          },
-          "Skipped entry attempt due to liquidity/spread gate",
-        );
-        return this.config.loopSleepSeconds;
+    const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(entryTokenIds, entryPrice, this.config.orderSize);
+    this.logger.info(
+      {
+        paired,
+        conditionId: entryConditionId,
+        entryPrice,
+        orderSize: this.config.orderSize,
+        secondsToClose,
+        forceSellWindow: isInsideForceSellWindow,
+      },
+      "Placed paired limit buy orders",
+    );
+    await this.notifyPlacementSuccessOnce({
+      conditionId: entryConditionId,
+      slug: entryMarket.slug,
+      upTokenId: entryTokenIds.upTokenId,
+      downTokenId: entryTokenIds.downTokenId,
+      entryPrice,
+      orderSize: this.config.orderSize,
+      attempt: 0,
+      secondsToClose,
+      mode: "current-market",
+    });
+
+    const reconcile = await this.tradingEngine.reconcilePairedEntry({
+      positionsAddress,
+      conditionId: entryConditionId,
+      tokenIds: entryTokenIds,
+      cancelOpenOrders: !isInsideForceSellWindow,
+    });
+
+    if (isInsideForceSellWindow && reconcile.status === "imbalanced") {
+      const recovery = await this.handleForceWindowImbalance({
+        market: entryMarket,
+        conditionId: entryConditionId,
+        positionsAddress,
+        tokenIds: entryTokenIds,
+        summary: reconcile.finalSummary,
+        secondsToClose,
+        entryPrice,
+      });
+
+      if (recovery.status === "balanced") {
+        await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+          conditionId: entryConditionId,
+          path: "entry-market:force-window",
+        });
+        await this.markTrackedMarket(entryConditionId);
+        return this.config.positionRecheckSeconds;
       }
 
-      const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
-        entryTokenIds,
-        entryPrice,
-        liquidity.orderSize,
-      );
-      this.logger.info(
-        {
-          paired,
-          conditionId: entryConditionId,
-          entryPrice,
-          orderSize: liquidity.orderSize,
-          attempt,
-          maxAttempts: maxRepriceAttempts,
-          upSpread: liquidity.upSpread,
-          downSpread: liquidity.downSpread,
-          upDepth: liquidity.upDepth,
-          downDepth: liquidity.downDepth,
-          secondsToClose,
-          forceSellWindow: isInsideForceSellWindow,
-        },
-        "Placed paired limit buy orders",
-      );
-      await this.notifyPlacementSuccessOnce({
+      return this.config.loopSleepSeconds;
+    }
+
+    if (reconcile.status === "balanced") {
+      await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
+        conditionId: entryConditionId,
+        path: "entry-market:reconcile",
+      });
+      await this.notifyEntryFilledOnce({
         conditionId: entryConditionId,
         slug: entryMarket.slug,
         upTokenId: entryTokenIds.upTokenId,
         downTokenId: entryTokenIds.downTokenId,
+        upSize: reconcile.finalSummary.upSize,
+        downSize: reconcile.finalSummary.downSize,
         entryPrice,
-        orderSize: liquidity.orderSize,
-        attempt,
-        secondsToClose,
-        mode: "current-market",
+        mode: "reconcile",
       });
-
-      const isFinalAttempt = attempt >= maxRepriceAttempts;
-      const reconcile = await this.tradingEngine.reconcilePairedEntry({
-        positionsAddress,
-        conditionId: entryConditionId,
-        tokenIds: entryTokenIds,
-        cancelOpenOrders: !isInsideForceSellWindow,
-      });
-
-      if (isInsideForceSellWindow && isFinalAttempt && reconcile.status === "imbalanced") {
-        const recovery = await this.handleForceWindowImbalance({
-          market: entryMarket,
+      await this.markTrackedMarket(entryConditionId);
+      this.transitionConditionLifecycle(entryConditionId, "balanced");
+      this.logger.info(
+        {
           conditionId: entryConditionId,
-          positionsAddress,
-          tokenIds: entryTokenIds,
+          status: reconcile.status,
+          attempts: reconcile.attempts,
           summary: reconcile.finalSummary,
-          secondsToClose,
           entryPrice,
-        });
+        },
+        "Entry reconciliation succeeded",
+      );
+      return this.config.positionRecheckSeconds;
+    }
 
-        if (recovery.status === "balanced") {
-          await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
-            conditionId: entryConditionId,
-            path: "entry-market:force-window",
-          });
-          await this.markTrackedMarket(entryConditionId);
-          return this.config.positionRecheckSeconds;
-        }
-
-        return this.config.loopSleepSeconds;
-      }
-
-      if (reconcile.status === "balanced") {
-        await this.cancelEntryOrdersAfterBalance(entryTokenIds, {
-          conditionId: entryConditionId,
-          path: "entry-market:reconcile",
-        });
-        await this.notifyEntryFilledOnce({
-          conditionId: entryConditionId,
-          slug: entryMarket.slug,
-          upTokenId: entryTokenIds.upTokenId,
-          downTokenId: entryTokenIds.downTokenId,
-          upSize: reconcile.finalSummary.upSize,
-          downSize: reconcile.finalSummary.downSize,
-          entryPrice,
-          mode: "reconcile",
-        });
-        await this.markTrackedMarket(entryConditionId);
-        this.transitionConditionLifecycle(entryConditionId, "balanced");
-        this.logger.info(
-          {
-            conditionId: entryConditionId,
-            status: reconcile.status,
-            attempts: reconcile.attempts,
-            summary: reconcile.finalSummary,
-            entryAttempt: attempt,
-            entryPrice,
-          },
-          "Entry reconciliation succeeded",
-        );
-        return this.config.positionRecheckSeconds;
-      }
-
-      if (reconcile.status === "failed" && !isFinalAttempt) {
+    if (reconcile.status === "imbalanced") {
+      let handoffCancelledOpenOrders: unknown[] | undefined;
+      try {
+        handoffCancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
+      } catch (error) {
         this.logger.warn(
           {
             conditionId: entryConditionId,
-            status: reconcile.status,
-            attempts: reconcile.attempts,
-            summary: reconcile.finalSummary,
-            cancelledOpenOrders: reconcile.cancelledOpenOrders,
-            reason: reconcile.reason,
-            entryAttempt: attempt,
-            nextPrice: this.tradingEngine.getEntryPriceForAttempt(attempt + 1),
-            secondsToClose,
+            error,
+            path: "entry-market:imbalance-handoff-cancel",
           },
-          "Entry had no fills; repricing paired entry",
+          "Failed to immediately cancel paired entry orders during recovery handoff",
         );
-        continue;
       }
 
-      if (reconcile.status === "imbalanced") {
-        let handoffCancelledOpenOrders: unknown[] | undefined;
-        try {
-          handoffCancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
-        } catch (error) {
-          this.logger.warn(
-            {
-              conditionId: entryConditionId,
-              error,
-              path: "entry-market:imbalance-handoff-cancel",
-            },
-            "Failed to immediately cancel paired entry orders during recovery handoff",
-          );
-        }
-
-        await this.markTrackedMarket(entryConditionId);
-        this.transitionConditionLifecycle(
-          entryConditionId,
-          isInsideForceSellWindow ? "force-window" : "recovery-pending",
-        );
-        this.logger.warn(
-          {
-            conditionId: entryConditionId,
-            status: reconcile.status,
-            attempts: reconcile.attempts,
-            summary: reconcile.finalSummary,
-            cancelledOpenOrders: reconcile.cancelledOpenOrders,
-            reason: reconcile.reason,
-            entryAttempt: attempt,
-            entryPrice,
-            secondsToClose,
-            forceSellWindow: isInsideForceSellWindow,
-            handoff: "tracked-market-recovery",
-            handoffCancelledOpenOrders,
-          },
-          "Entry reconciliation detected partial fill; cancelled paired orders and handed off to tracked-market recovery",
-        );
-        await this.notify({
-          title: "Entry remains imbalanced",
-          severity: "warn",
-          dedupeKey: `reconcile-imbalanced:${entryConditionId}`,
-          slug: entryMarket.slug,
-          conditionId: entryConditionId,
-          upTokenId: entryTokenIds.upTokenId,
-          downTokenId: entryTokenIds.downTokenId,
-          details: [
-            { key: "attempt", value: attempt },
-            { key: "entryPrice", value: entryPrice },
-            { key: "up", value: reconcile.finalSummary.upSize },
-            { key: "down", value: reconcile.finalSummary.downSize },
-            { key: "diff", value: reconcile.finalSummary.differenceAbs },
-            { key: "reason", value: reconcile.reason },
-            { key: "secondsToClose", value: secondsToClose },
-          ],
-        });
-        return this.config.loopSleepSeconds;
-      }
-
-      this.transitionConditionLifecycle(entryConditionId, "terminal");
-      this.logger.error(
+      await this.markTrackedMarket(entryConditionId);
+      this.transitionConditionLifecycle(entryConditionId, isInsideForceSellWindow ? "force-window" : "recovery-pending");
+      this.logger.warn(
         {
           conditionId: entryConditionId,
           status: reconcile.status,
@@ -1624,21 +1528,24 @@ export class PolymarketBot {
           summary: reconcile.finalSummary,
           cancelledOpenOrders: reconcile.cancelledOpenOrders,
           reason: reconcile.reason,
-          entryAttempt: attempt,
           entryPrice,
+          secondsToClose,
+          forceSellWindow: isInsideForceSellWindow,
+          handoff: "tracked-market-recovery",
+          handoffCancelledOpenOrders,
         },
-        "Entry reconciliation failed",
+        "Entry reconciliation detected partial fill; cancelled paired orders and handed off to tracked-market recovery",
       );
       await this.notify({
-        title: "Entry reconciliation failed",
-        severity: "error",
-        dedupeKey: `reconcile-failed:${entryConditionId}`,
+        title: "Entry remains imbalanced",
+        severity: "warn",
+        dedupeKey: `reconcile-imbalanced:${entryConditionId}`,
         slug: entryMarket.slug,
         conditionId: entryConditionId,
         upTokenId: entryTokenIds.upTokenId,
         downTokenId: entryTokenIds.downTokenId,
         details: [
-          { key: "attempt", value: attempt },
+          { key: "attempt", value: 0 },
           { key: "entryPrice", value: entryPrice },
           { key: "up", value: reconcile.finalSummary.upSize },
           { key: "down", value: reconcile.finalSummary.downSize },
@@ -1647,9 +1554,40 @@ export class PolymarketBot {
           { key: "secondsToClose", value: secondsToClose },
         ],
       });
-
       return this.config.loopSleepSeconds;
     }
+
+    this.transitionConditionLifecycle(entryConditionId, "terminal");
+    this.logger.error(
+      {
+        conditionId: entryConditionId,
+        status: reconcile.status,
+        attempts: reconcile.attempts,
+        summary: reconcile.finalSummary,
+        cancelledOpenOrders: reconcile.cancelledOpenOrders,
+        reason: reconcile.reason,
+        entryPrice,
+      },
+      "Entry reconciliation failed",
+    );
+    await this.notify({
+      title: "Entry reconciliation failed",
+      severity: "error",
+      dedupeKey: `reconcile-failed:${entryConditionId}`,
+      slug: entryMarket.slug,
+      conditionId: entryConditionId,
+      upTokenId: entryTokenIds.upTokenId,
+      downTokenId: entryTokenIds.downTokenId,
+      details: [
+        { key: "attempt", value: 0 },
+        { key: "entryPrice", value: entryPrice },
+        { key: "up", value: reconcile.finalSummary.upSize },
+        { key: "down", value: reconcile.finalSummary.downSize },
+        { key: "diff", value: reconcile.finalSummary.differenceAbs },
+        { key: "reason", value: reconcile.reason },
+        { key: "secondsToClose", value: secondsToClose },
+      ],
+    });
 
     return this.config.loopSleepSeconds;
   }
@@ -1889,8 +1827,6 @@ export class PolymarketBot {
         { key: "currentLoopSleepSec", value: this.config.currentLoopSleepSeconds },
         { key: "positionRecheckSec", value: this.config.positionRecheckSeconds },
         { key: "entryReconcileSec", value: this.config.entryReconcileSeconds },
-        { key: "entryRepriceAttempts", value: this.config.entryMaxRepriceAttempts },
-        { key: "entryMaxSpread", value: this.config.entryMaxSpread },
         { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
         { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
         { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },

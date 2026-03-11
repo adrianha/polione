@@ -93,12 +93,6 @@ Common defaults:
 - `ENTRY_RECONCILE_SECONDS=15`
 - `ENTRY_RECONCILE_POLL_SECONDS=3`
 - `ENTRY_CANCEL_OPEN_ORDERS=true`
-- `ENTRY_MAX_REPRICE_ATTEMPTS=2`
-- `ENTRY_REPRICE_STEP=0.01`
-- `ENTRY_MAX_PRICE=0.50`
-- `ENTRY_MAX_SPREAD=0.03`
-- `ENTRY_DEPTH_PRICE_BAND=0.02`
-- `ENTRY_DEPTH_USAGE_RATIO=0.60`
 - `FORCE_WINDOW_FEE_BUFFER=0.01`
 - `FORCE_WINDOW_MIN_PROFIT_PER_SHARE=0.005`
 - `ENTRY_CONTINUOUS_REPRICE_ENABLED=true`
@@ -133,7 +127,7 @@ Optional notifications:
 - Entered market condition IDs are persisted to `STATE_FILE_PATH`.
 - Persisted state prevents multiple paired entries into the same condition across restarts.
 - Direct current-market entries run an immediate entry reconciliation window.
-- If a direct current-market entry remains imbalanced, the bot can reprice and re-attempt paired entry, then defer any missing-leg recovery to tracked-current processing.
+- If a direct current-market entry remains imbalanced, the bot defers missing-leg recovery to tracked-current processing.
 - Next-market entries are persisted immediately and left untouched until that market rolls into current.
 - When a tracked market becomes current, `processTrackedCurrentMarket` is the only place that runs missing-leg recovery.
 - Outside `FORCE_SELL_THRESHOLD_SECONDS`, tracked current markets can run continuous maker-first missing-leg recovery.
