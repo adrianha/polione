@@ -29,7 +29,7 @@ describe("state store", () => {
 
     const loaded = await store.loadTrackedMarkets();
     expect(Array.from(loaded).sort()).toEqual(["cond-a", "cond-b"]);
-  
+
     await rm(tempDir, { recursive: true, force: true });
   });
 

@@ -18,7 +18,11 @@ export class TradingEngine {
     return this.placePairedLimitBuysAtPrice(tokenIds, this.config.orderPrice, this.config.orderSize);
   }
 
-  async placePairedLimitBuysAtPrice(tokenIds: TokenIds, price: number, size: number): Promise<{ up: unknown; down: unknown }> {
+  async placePairedLimitBuysAtPrice(
+    tokenIds: TokenIds,
+    price: number,
+    size: number,
+  ): Promise<{ up: unknown; down: unknown }> {
     const batchResult = await this.clobClient.placeLimitOrdersBatch([
       {
         tokenId: tokenIds.upTokenId,
@@ -78,7 +82,10 @@ export class TradingEngine {
     return null;
   }
 
-  async getFilledAveragePriceForOrder(orderResult: unknown, fallbackPrice: number): Promise<{
+  async getFilledAveragePriceForOrder(
+    orderResult: unknown,
+    fallbackPrice: number,
+  ): Promise<{
     avgPrice: number;
     filledSize: number;
     source: "trades" | "order" | "fallback";
@@ -213,7 +220,10 @@ export class TradingEngine {
     return ask > 0 ? ask : Number.POSITIVE_INFINITY;
   }
 
-  async evaluateLiquidityForEntry(tokenIds: TokenIds, entryPrice: number): Promise<{
+  async evaluateLiquidityForEntry(
+    tokenIds: TokenIds,
+    entryPrice: number,
+  ): Promise<{
     allowed: boolean;
     orderSize: number;
     reason?: string;

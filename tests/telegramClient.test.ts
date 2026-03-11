@@ -25,7 +25,7 @@ describe("telegram client", () => {
   });
 
   it("escapes html and truncates ids", () => {
-    expect(escapeHtml("<a&b>")) .toBe("&lt;a&amp;b&gt;");
+    expect(escapeHtml("<a&b>")).toBe("&lt;a&amp;b&gt;");
     expect(truncateId("0x1234567890abcdef1234567890abcdef")).toContain("...");
   });
 });

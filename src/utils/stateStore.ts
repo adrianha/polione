@@ -24,9 +24,7 @@ const normalizeState = (value: unknown): PersistedState => {
     return defaultState();
   }
 
-  const trackedMarkets = candidate.filter(
-    (item): item is string => typeof item === "string" && item.length > 0,
-  );
+  const trackedMarkets = candidate.filter((item): item is string => typeof item === "string" && item.length > 0);
 
   return { trackedMarkets: Array.from(new Set(trackedMarkets)) };
 };

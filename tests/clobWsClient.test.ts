@@ -198,8 +198,9 @@ describe("clob websocket client", () => {
 
     expect(client.getFreshQuote("asset-2")).toEqual({ bestBid: 0.2, bestAsk: 0.22 });
 
-    const quotes = (client as unknown as { quotes: Map<string, { bestBid: number; bestAsk: number; updatedAtMs: number }> })
-      .quotes;
+    const quotes = (
+      client as unknown as { quotes: Map<string, { bestBid: number; bestAsk: number; updatedAtMs: number }> }
+    ).quotes;
     const current = quotes.get("asset-2");
     expect(current).toBeDefined();
     quotes.set("asset-2", {

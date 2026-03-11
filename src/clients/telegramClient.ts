@@ -93,7 +93,9 @@ export class TelegramClient {
     }
   }
 
-  async getUpdates(offset?: number): Promise<Array<{ update_id: number; message?: { text?: string; chat?: { id?: number } } }>> {
+  async getUpdates(
+    offset?: number,
+  ): Promise<Array<{ update_id: number; message?: { text?: string; chat?: { id?: number } } }>> {
     if (!this.isEnabled()) {
       return [];
     }

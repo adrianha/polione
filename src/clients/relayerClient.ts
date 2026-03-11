@@ -237,7 +237,10 @@ export class PolyRelayerClient {
     return Math.min(...futureRetryAts);
   }
 
-  private withMeta<T extends RelayerTransactionResponse>(result: T, meta: RelayerExecutionMeta): T & { meta: RelayerExecutionMeta } {
+  private withMeta<T extends RelayerTransactionResponse>(
+    result: T,
+    meta: RelayerExecutionMeta,
+  ): T & { meta: RelayerExecutionMeta } {
     return Object.assign(result, { meta });
   }
 

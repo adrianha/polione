@@ -60,7 +60,11 @@ const parseArgs = (): SimulationConfig => {
   return cfg;
 };
 
-const nextBook = (mid: number, spread: number, volatilityPerStep: number): { mid: number; bid: number; ask: number } => {
+const nextBook = (
+  mid: number,
+  spread: number,
+  volatilityPerStep: number,
+): { mid: number; bid: number; ask: number } => {
   const shock = (Math.random() * 2 - 1) * volatilityPerStep;
   const nextMid = clamp(mid + shock, 0.01, 0.99);
   const halfSpread = spread / 2;
@@ -69,12 +73,7 @@ const nextBook = (mid: number, spread: number, volatilityPerStep: number): { mid
   return { mid: nextMid, bid, ask };
 };
 
-const makerPrice = (
-  bid: number,
-  ask: number,
-  maxMissingPrice: number,
-  makerOffset: number,
-): number => {
+const makerPrice = (bid: number, ask: number, maxMissingPrice: number, makerOffset: number): number => {
   const makerCandidate = bid + makerOffset;
   const nonCrossingCap = Math.max(0, ask - makerOffset);
   return round(Math.min(maxMissingPrice, makerCandidate, nonCrossingCap), 4);
