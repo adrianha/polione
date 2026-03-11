@@ -321,7 +321,7 @@ describe("bot lifecycle", () => {
       expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
       expect(bot.tradingEngine.getFilledAveragePriceForOrder).not.toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
       expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -345,7 +345,7 @@ describe("bot lifecycle", () => {
 
       expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -507,10 +507,10 @@ describe("bot lifecycle", () => {
     bot.tradingEngine.reconcilePairedEntry = vi
       .fn()
       .mockResolvedValueOnce({
-        status: "imbalanced",
+        status: "failed",
         attempts: 1,
-        finalSummary: { upSize: 5, downSize: 3, differenceAbs: 2 },
-        reason: "partial fills",
+        finalSummary: { upSize: 0, downSize: 0, differenceAbs: 0 },
+        reason: "no fills",
       })
       .mockResolvedValueOnce({
         status: "balanced",

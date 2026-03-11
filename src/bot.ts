@@ -13,6 +13,15 @@ import { arePositionsEqual, summarizePositions } from "./services/positionManage
 import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
 
+type ConditionLifecycle =
+  | "new"
+  | "entry-pending"
+  | "entry-repricing"
+  | "recovery-pending"
+  | "force-window"
+  | "balanced"
+  | "terminal";
+
 export class PolymarketBot {
   private static readonly RECOVERY_REARM_COOLDOWN_MS = 15_000;
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
@@ -35,6 +44,7 @@ export class PolymarketBot {
   >();
   private readonly inFlightConditions = new Set<string>();
   private readonly notifiedEntryFilled = new Set<string>();
+  private readonly conditionLifecycle = new Map<string, ConditionLifecycle>();
   private relayerFailoverActive = false;
 
   private readonly gammaClient: GammaClient;
@@ -288,6 +298,10 @@ export class PolymarketBot {
     }
   }
 
+  private transitionConditionLifecycle(conditionId: string, state: ConditionLifecycle): void {
+    this.conditionLifecycle.set(conditionId, state);
+  }
+
   stop(): void {
     this.stopped = true;
     this.clobWsClient.stop();
@@ -350,7 +364,10 @@ export class PolymarketBot {
     return Number(price.toFixed(4));
   }
 
-  private getImbalancePlan(summary: PositionSummary, tokenIds: TokenIds): {
+  private getImbalancePlan(
+    summary: PositionSummary,
+    tokenIds: TokenIds,
+  ): {
     filledLegTokenId: string;
     missingLegTokenId: string;
     missingAmount: number;
@@ -400,6 +417,10 @@ export class PolymarketBot {
     };
   }
 
+  private hasAnyFill(summary: PositionSummary): boolean {
+    return summary.upSize > 0 || summary.downSize > 0;
+  }
+
   private getRemainingAllowanceForTokenId(
     tokenId: string,
     tokenIds: TokenIds,
@@ -414,11 +435,7 @@ export class PolymarketBot {
     return 0;
   }
 
-  private computeMakerMissingLegPrice(params: {
-    bestBid: number;
-    bestAsk: number;
-    maxMissingPrice: number;
-  }): number {
+  private computeMakerMissingLegPrice(params: { bestBid: number; bestAsk: number; maxMissingPrice: number }): number {
     const bestBid = Math.max(0, params.bestBid);
     const bestAsk = Math.max(0, params.bestAsk);
     const maxMissingPrice = Math.max(0, params.maxMissingPrice);
@@ -434,7 +451,9 @@ export class PolymarketBot {
 
   private didSummaryChange(previous: PositionSummary, current: PositionSummary): boolean {
     const epsilon = 1e-6;
-    return Math.abs(previous.upSize - current.upSize) > epsilon || Math.abs(previous.downSize - current.downSize) > epsilon;
+    return (
+      Math.abs(previous.upSize - current.upSize) > epsilon || Math.abs(previous.downSize - current.downSize) > epsilon
+    );
   }
 
   private async runContinuousMissingLegRecovery(params: {
@@ -581,11 +600,7 @@ export class PolymarketBot {
       };
     }
 
-    await this.tradingEngine.placeSingleLimitBuyAtPrice(
-      imbalance.missingLegTokenId,
-      nextPrice,
-      cappedMissingAmount,
-    );
+    await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, cappedMissingAmount);
 
     return {
       status: "placed",
@@ -650,7 +665,11 @@ export class PolymarketBot {
 
       if (hedgeCheck.isProfitable) {
         const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
-        const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(summary, tokenIds, hedgeCheck.maxHedgePrice);
+        const hedgeBuy = await this.tradingEngine.completeMissingLegForHedge(
+          summary,
+          tokenIds,
+          hedgeCheck.maxHedgePrice,
+        );
         const postHedgeReconcile = await this.tradingEngine.reconcilePairedEntry({
           positionsAddress,
           conditionId,
@@ -1042,6 +1061,7 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
+      this.transitionConditionLifecycle(currentConditionId, "recovery-pending");
       const placementLock = this.recentRecoveryPlacements.get(currentConditionId);
 
       const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
@@ -1107,6 +1127,7 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "force-window") {
+        this.transitionConditionLifecycle(currentConditionId, "force-window");
         this.recentRecoveryPlacements.delete(currentConditionId);
         const forceRecovery = await this.handleForceWindowImbalance({
           market: currentMarket,
@@ -1119,6 +1140,7 @@ export class PolymarketBot {
         });
 
         if (forceRecovery.status === "balanced") {
+          this.transitionConditionLifecycle(currentConditionId, "balanced");
           await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
             conditionId: currentConditionId,
             path: "tracked-market:force-window",
@@ -1139,6 +1161,7 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "placed") {
+        this.transitionConditionLifecycle(currentConditionId, "recovery-pending");
         if (recovery.lastPlacedPrice !== undefined && recovery.missingLegTokenId) {
           this.recentRecoveryPlacements.set(currentConditionId, {
             placedAtMs: nowMs,
@@ -1194,6 +1217,7 @@ export class PolymarketBot {
     }
 
     if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+      this.transitionConditionLifecycle(currentConditionId, "force-window");
       const recovery = await this.handleForceWindowImbalance({
         market: currentMarket,
         conditionId: currentConditionId,
@@ -1212,6 +1236,8 @@ export class PolymarketBot {
         conditionId: currentConditionId,
         path: "tracked-market:force-window-existing",
       });
+
+      this.transitionConditionLifecycle(currentConditionId, "balanced");
 
       this.logger.info(
         { conditionId: currentConditionId, secondsToClose, summary: currentSummary },
@@ -1287,6 +1313,7 @@ export class PolymarketBot {
         "Skipped paired entry: existing exposure detected; handed off to tracked-market recovery",
       );
       await this.markTrackedMarket(entryConditionId);
+      this.transitionConditionLifecycle(entryConditionId, "recovery-pending");
       return this.config.loopSleepSeconds;
     }
 
@@ -1323,6 +1350,7 @@ export class PolymarketBot {
       isCurrentMarketEntry && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds;
 
     if (!isCurrentMarketEntry) {
+      this.transitionConditionLifecycle(entryConditionId, "entry-pending");
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(0);
       const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
         entryTokenIds,
@@ -1349,6 +1377,7 @@ export class PolymarketBot {
         mode: "non-current-market",
       });
       await this.markTrackedMarket(entryConditionId);
+      this.transitionConditionLifecycle(entryConditionId, "entry-pending");
       this.logger.info(
         {
           conditionId: entryConditionId,
@@ -1360,6 +1389,7 @@ export class PolymarketBot {
     }
 
     const maxRepriceAttempts = isInsideForceSellWindow ? 0 : this.config.entryMaxRepriceAttempts;
+    this.transitionConditionLifecycle(entryConditionId, isInsideForceSellWindow ? "force-window" : "entry-repricing");
 
     for (let attempt = 0; attempt <= maxRepriceAttempts; attempt += 1) {
       const entryPrice = this.tradingEngine.getEntryPriceForAttempt(attempt);
@@ -1464,6 +1494,7 @@ export class PolymarketBot {
           mode: "reconcile",
         });
         await this.markTrackedMarket(entryConditionId);
+        this.transitionConditionLifecycle(entryConditionId, "balanced");
         this.logger.info(
           {
             conditionId: entryConditionId,
@@ -1478,7 +1509,7 @@ export class PolymarketBot {
         return this.config.positionRecheckSeconds;
       }
 
-      if (reconcile.status === "imbalanced" && !isFinalAttempt) {
+      if (reconcile.status === "failed" && !isFinalAttempt) {
         this.logger.warn(
           {
             conditionId: entryConditionId,
@@ -1491,13 +1522,31 @@ export class PolymarketBot {
             nextPrice: this.tradingEngine.getEntryPriceForAttempt(attempt + 1),
             secondsToClose,
           },
-          "Entry remains imbalanced; repricing paired entry",
+          "Entry had no fills; repricing paired entry",
         );
         continue;
       }
 
       if (reconcile.status === "imbalanced") {
+        let handoffCancelledOpenOrders: unknown[] | undefined;
+        try {
+          handoffCancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(entryTokenIds);
+        } catch (error) {
+          this.logger.warn(
+            {
+              conditionId: entryConditionId,
+              error,
+              path: "entry-market:imbalance-handoff-cancel",
+            },
+            "Failed to immediately cancel paired entry orders during recovery handoff",
+          );
+        }
+
         await this.markTrackedMarket(entryConditionId);
+        this.transitionConditionLifecycle(
+          entryConditionId,
+          isInsideForceSellWindow ? "force-window" : "recovery-pending",
+        );
         this.logger.warn(
           {
             conditionId: entryConditionId,
@@ -1511,8 +1560,9 @@ export class PolymarketBot {
             secondsToClose,
             forceSellWindow: isInsideForceSellWindow,
             handoff: "tracked-market-recovery",
+            handoffCancelledOpenOrders,
           },
-          "Entry reconciliation ended imbalanced; handing off to tracked-market recovery",
+          "Entry reconciliation detected partial fill; cancelled paired orders and handed off to tracked-market recovery",
         );
         await this.notify({
           title: "Entry remains imbalanced",
@@ -1535,6 +1585,7 @@ export class PolymarketBot {
         return this.config.loopSleepSeconds;
       }
 
+      this.transitionConditionLifecycle(entryConditionId, "terminal");
       this.logger.error(
         {
           conditionId: entryConditionId,
