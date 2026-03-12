@@ -33,6 +33,7 @@ export interface BotConfig {
   forceSellThresholdSeconds: number;
   loopSleepSeconds: number;
   currentLoopSleepSeconds: number;
+  redeemLoopSleepSeconds: number;
   positionRecheckSeconds: number;
   entryReconcileSeconds: number;
   entryReconcilePollSeconds: number;

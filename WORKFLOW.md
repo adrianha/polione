@@ -173,7 +173,6 @@ If all guards pass for a direct current-market entry:
   - Remote signer (`BUILDER_SIGNER_URL`, optional `BUILDER_SIGNER_TOKEN`).
 - When two local builder credential sets are configured, relayer calls prefer builder1 and fail over to builder2 only on confirmed rate-limit errors; Telegram sends one alert when a failover episode starts.
 - Active loop uses merge (`mergeEqualPositions`) when conditions are met.
-- Redeem capability exists in client/service (`redeemPositions` / `redeemResolvedPositions`) but is not called in the current main bot loop.
 
 ## State persistence
 
