@@ -30,6 +30,7 @@ const baseConfig: BotConfig = {
   forceSellThresholdSeconds: 30,
   loopSleepSeconds: 10,
   currentLoopSleepSeconds: 3,
+  redeemLoopSleepSeconds: 60,
   positionRecheckSeconds: 60,
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,
@@ -41,6 +42,10 @@ const baseConfig: BotConfig = {
   entryContinuousMinPriceDelta: 0.002,
   entryContinuousMaxDurationSeconds: 45,
   entryContinuousMakerOffset: 0.001,
+  entryRecoveryHorizonSeconds: 120,
+  entryRecoveryExtraProfitMax: 0.01,
+  entryRecoveryMinSizeFraction: 0.35,
+  entryRecoveryPassiveOffsetMax: 0.004,
   requestTimeoutMs: 30000,
   requestRetries: 0,
   requestRetryBackoffMs: 0,
@@ -386,7 +391,7 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 2);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 0.7);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -550,7 +555,7 @@ describe("bot lifecycle", () => {
   it("skips missing-leg reorder when computed recovery price is unchanged", async () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
-    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
     bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
 
     bot.recentRecoveryPlacements.set("cond-1", {

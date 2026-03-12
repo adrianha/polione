@@ -45,6 +45,10 @@ export interface BotConfig {
   entryContinuousMinPriceDelta: number;
   entryContinuousMaxDurationSeconds: number;
   entryContinuousMakerOffset: number;
+  entryRecoveryHorizonSeconds: number;
+  entryRecoveryExtraProfitMax: number;
+  entryRecoveryMinSizeFraction: number;
+  entryRecoveryPassiveOffsetMax: number;
   requestTimeoutMs: number;
   requestRetries: number;
   requestRetryBackoffMs: number;

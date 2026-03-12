@@ -492,18 +492,54 @@ export class PolymarketBot {
     return 0;
   }
 
-  private computeMakerMissingLegPrice(params: { bestBid: number; bestAsk: number; maxMissingPrice: number }): number {
+  private computeMakerMissingLegPrice(params: {
+    bestBid: number;
+    bestAsk: number;
+    maxMissingPrice: number;
+    makerOffset?: number;
+  }): number {
     const bestBid = Math.max(0, params.bestBid);
     const bestAsk = Math.max(0, params.bestAsk);
     const maxMissingPrice = Math.max(0, params.maxMissingPrice);
+    const makerOffset = Math.max(0, params.makerOffset ?? this.config.entryContinuousMakerOffset);
     if (maxMissingPrice <= 0 || bestBid <= 0 || bestAsk <= 0) {
       return 0;
     }
 
-    const makerCandidate = bestBid + this.config.entryContinuousMakerOffset;
-    const nonCrossingCap = Math.max(0, bestAsk - this.config.entryContinuousMakerOffset);
+    const makerCandidate = bestBid + makerOffset;
+    const nonCrossingCap = Math.max(0, bestAsk - makerOffset);
     const bounded = Math.min(maxMissingPrice, makerCandidate, nonCrossingCap);
     return this.roundPrice(bounded);
+  }
+
+  private getTimeAwareRecoveryPolicy(secondsToClose: number | null): {
+    progress: number;
+    extraProfitBuffer: number;
+    makerOffset: number;
+    sizeFraction: number;
+  } {
+    if (secondsToClose === null) {
+      return {
+        progress: 0,
+        extraProfitBuffer: 0,
+        makerOffset: this.config.entryContinuousMakerOffset,
+        sizeFraction: 1,
+      };
+    }
+
+    const forceThreshold = this.config.forceSellThresholdSeconds;
+    const horizon = Math.max(forceThreshold + 1, this.config.entryRecoveryHorizonSeconds);
+    const rawProgress = (secondsToClose - forceThreshold) / (horizon - forceThreshold);
+    const progress = Math.min(1, Math.max(0, rawProgress));
+
+    const minSizeFraction = Math.min(1, Math.max(0, this.config.entryRecoveryMinSizeFraction));
+
+    return {
+      progress,
+      extraProfitBuffer: this.config.entryRecoveryExtraProfitMax * progress,
+      makerOffset: this.config.entryContinuousMakerOffset + this.config.entryRecoveryPassiveOffsetMax * progress,
+      sizeFraction: 1 - progress * (1 - minSizeFraction),
+    };
   }
 
   private didSummaryChange(previous: PositionSummary, current: PositionSummary): boolean {
@@ -521,6 +557,7 @@ export class PolymarketBot {
     initialSummary: PositionSummary;
     filledLegAvgPrice: number;
     previousPlacement?: {
+      placedAtMs: number;
       price: number;
       missingLegTokenId: string;
     };
@@ -562,6 +599,8 @@ export class PolymarketBot {
       };
     }
 
+    const recoveryPolicy = this.getTimeAwareRecoveryPolicy(secondsToClose);
+
     const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
     const latestSummary = summarizePositions(positions, params.tokenIds);
     const buyCapacity = this.getConditionBuyCapacity(latestSummary);
@@ -596,9 +635,8 @@ export class PolymarketBot {
       };
     }
 
-    const maxMissingPrice = this.roundPrice(
-      1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare,
-    );
+    const targetMinProfitPerShare = this.config.forceWindowMinProfitPerShare + recoveryPolicy.extraProfitBuffer;
+    const maxMissingPrice = this.roundPrice(1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - targetMinProfitPerShare);
 
     if (maxMissingPrice <= 0) {
       return {
@@ -614,6 +652,7 @@ export class PolymarketBot {
       bestBid: top.bestBid,
       bestAsk: top.bestAsk,
       maxMissingPrice,
+      makerOffset: recoveryPolicy.makerOffset,
     });
 
     if (nextPrice <= 0) {
@@ -625,18 +664,44 @@ export class PolymarketBot {
       };
     }
 
-    if (
-      params.previousPlacement &&
-      params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId &&
-      Math.abs(nextPrice - params.previousPlacement.price) < 1e-6
-    ) {
+    if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
+      const elapsedMs = Date.now() - params.previousPlacement.placedAtMs;
+      const priceDelta = Math.abs(nextPrice - params.previousPlacement.price);
+      if (
+        elapsedMs < this.config.entryContinuousRepriceIntervalMs &&
+        priceDelta < this.config.entryContinuousMinPriceDelta
+      ) {
+        return {
+          status: "unchanged-price",
+          finalSummary: latestSummary,
+          iterations,
+          lastPlacedPrice: params.previousPlacement.price,
+          missingLegTokenId: imbalance.missingLegTokenId,
+          reason: "Skipped re-order because min reprice interval and min price delta were not met",
+        };
+      }
+
+      if (priceDelta < 1e-6) {
+        return {
+          status: "unchanged-price",
+          finalSummary: latestSummary,
+          iterations,
+          lastPlacedPrice: nextPrice,
+          missingLegTokenId: imbalance.missingLegTokenId,
+          reason: "Skipped re-order because recovery price is unchanged",
+        };
+      }
+    }
+
+    const expectedLockPnlPerShare = 1 - params.filledLegAvgPrice - nextPrice - this.config.forceWindowFeeBuffer;
+    if (expectedLockPnlPerShare < targetMinProfitPerShare) {
       return {
-        status: "unchanged-price",
+        status: "timeout",
         finalSummary: latestSummary,
         iterations,
         lastPlacedPrice: nextPrice,
         missingLegTokenId: imbalance.missingLegTokenId,
-        reason: "Skipped re-order because recovery price is unchanged",
+        reason: "Missing-leg edge below time-aware profitability target",
       };
     }
 
@@ -647,17 +712,18 @@ export class PolymarketBot {
       buyCapacity,
     );
     const cappedMissingAmount = Number(Math.min(imbalance.missingAmount, remainingForMissingLeg).toFixed(6));
+    const conservativeMissingAmount = Number((cappedMissingAmount * recoveryPolicy.sizeFraction).toFixed(6));
 
-    if (cappedMissingAmount <= 0) {
+    if (conservativeMissingAmount <= 0) {
       return {
         status: "timeout",
         finalSummary: latestSummary,
         iterations,
-        reason: "Missing-leg remaining allowance is zero; no further buys allowed",
+        reason: "Missing-leg conservative size resolved to zero",
       };
     }
 
-    await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, cappedMissingAmount);
+    await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, conservativeMissingAmount);
 
     return {
       status: "placed",
@@ -666,8 +732,8 @@ export class PolymarketBot {
       lastPlacedPrice: nextPrice,
       missingLegTokenId: imbalance.missingLegTokenId,
       reason:
-        cappedMissingAmount < Number(imbalance.missingAmount.toFixed(6))
-          ? `Placed capped missing-leg recovery order for this cycle (${cappedMissingAmount}/${Number(imbalance.missingAmount.toFixed(6))})`
+        conservativeMissingAmount < Number(imbalance.missingAmount.toFixed(6))
+          ? `Placed conservative missing-leg recovery order for this cycle (${conservativeMissingAmount}/${Number(imbalance.missingAmount.toFixed(6))})`
           : "Placed one missing-leg recovery order for this cycle",
     };
   }
@@ -1079,6 +1145,7 @@ export class PolymarketBot {
         filledLegAvgPrice: this.config.orderPrice,
         previousPlacement: placementLock
           ? {
+              placedAtMs: placementLock.placedAtMs,
               price: placementLock.price,
               missingLegTokenId: placementLock.missingLegTokenId,
             }

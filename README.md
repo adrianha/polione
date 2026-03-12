@@ -101,6 +101,10 @@ Common defaults:
 - `ENTRY_CONTINUOUS_MIN_PRICE_DELTA=0.002`
 - `ENTRY_CONTINUOUS_MAX_DURATION_SECONDS=45`
 - `ENTRY_CONTINUOUS_MAKER_OFFSET=0.001`
+- `ENTRY_RECOVERY_HORIZON_SECONDS=120`
+- `ENTRY_RECOVERY_EXTRA_PROFIT_MAX=0.01`
+- `ENTRY_RECOVERY_MIN_SIZE_FRACTION=0.35`
+- `ENTRY_RECOVERY_PASSIVE_OFFSET_MAX=0.004`
 - `REQUEST_TIMEOUT_MS=30000`
 - `REQUEST_RETRIES=3`
 - `REQUEST_RETRY_BACKOFF_MS=500`
@@ -132,6 +136,7 @@ Optional notifications:
 - Next-market entries are persisted immediately and left untouched until that market rolls into current.
 - When a tracked market becomes current, `processTrackedCurrentMarket` is the only place that runs missing-leg recovery.
 - Outside `FORCE_SELL_THRESHOLD_SECONDS`, tracked current markets can run continuous maker-first missing-leg recovery.
+- Outside `FORCE_SELL_THRESHOLD_SECONDS`, missing-leg recovery uses a linear profitability-first curve: larger edge buffer, more passive quotes, and smaller size when far from close, relaxing as force window nears.
 - Inside the force-sell window, bot can optionally complete the missing leg only when hedge price is profitable by configured fee/profit buffers; otherwise it cancels open orders and flattens the filled side.
 - Entry execution now uses a liquidity/spread gate and adaptive order size derived from order book depth.
 - Continuous missing-leg repricing (including force-window fallback) is handled in `processTrackedCurrentMarket`, not in `processEntryMarket`.
@@ -142,3 +147,17 @@ Optional notifications:
 ## Workflow
 
 The implementation-accurate runtime flow is documented in `WORKFLOW.md`.
+
+## Profitability-first tuning
+
+- `ENTRY_RECOVERY_HORIZON_SECONDS` defines how far from close the linear conservatism ramps to max.
+- `ENTRY_RECOVERY_EXTRA_PROFIT_MAX` adds extra per-share profit target at far horizon (linearly decays to 0 near force window).
+- `ENTRY_RECOVERY_MIN_SIZE_FRACTION` is the smallest recovery size fraction used at far horizon.
+- `ENTRY_RECOVERY_PASSIVE_OFFSET_MAX` adds extra maker passiveness at far horizon (linearly decays to 0 near force window).
+
+Suggested starting profile (profitability-first):
+
+- `ENTRY_RECOVERY_HORIZON_SECONDS=120`
+- `ENTRY_RECOVERY_EXTRA_PROFIT_MAX=0.01`
+- `ENTRY_RECOVERY_MIN_SIZE_FRACTION=0.35`
+- `ENTRY_RECOVERY_PASSIVE_OFFSET_MAX=0.004`
