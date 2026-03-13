@@ -1404,22 +1404,6 @@ export class PolymarketBot {
       this.transitionConditionLifecycle(currentConditionId, "recovery-pending");
       const placementLock = this.recentRecoveryPlacements.get(currentConditionId);
 
-      const imbalancePlan = this.getImbalancePlan(currentSummary, currentTokenIds);
-      if (!imbalancePlan) {
-        this.logger.info(
-          {
-            conditionId: currentConditionId,
-            slug: currentMarket.slug,
-            up: currentSummary.upSize,
-            down: currentSummary.downSize,
-            diff: currentSummary.differenceAbs,
-            secondsToClose,
-          },
-          "Observed non-recoverable imbalance outside force-sell window; no action taken",
-        );
-        return;
-      }
-
       const recovery = await this.runContinuousMissingLegRecovery({
         market: currentMarket,
         conditionId: currentConditionId,
