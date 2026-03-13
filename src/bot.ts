@@ -990,7 +990,7 @@ export class PolymarketBot {
       buyCapacity,
     );
     const cappedMissingAmount = Number(Math.min(imbalance.missingAmount, remainingForMissingLeg).toFixed(6));
-    const conservativeMissingAmount = Number((cappedMissingAmount * recoveryPolicy.sizeFraction).toFixed(6));
+    let conservativeMissingAmount = Number((cappedMissingAmount * recoveryPolicy.sizeFraction).toFixed(6));
 
     if (conservativeMissingAmount <= 0) {
       return {
@@ -1001,6 +1001,7 @@ export class PolymarketBot {
       };
     }
 
+    conservativeMissingAmount = Math.min(this.config.orderSize, conservativeMissingAmount);
     await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, conservativeMissingAmount);
 
     return {
