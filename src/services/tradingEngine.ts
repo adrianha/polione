@@ -243,7 +243,7 @@ export class TradingEngine {
       side: "BUY",
       amount,
       price: maxBuyPrice,
-      orderType: OrderType.FAK,
+      orderType: OrderType.FOK,
     });
 
     return {
