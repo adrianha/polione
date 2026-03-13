@@ -1001,7 +1001,7 @@ export class PolymarketBot {
       };
     }
 
-    conservativeMissingAmount = Math.min(this.config.orderSize, conservativeMissingAmount);
+    conservativeMissingAmount = Math.max(this.config.orderSize, conservativeMissingAmount);
     await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, conservativeMissingAmount);
 
     return {
