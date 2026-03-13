@@ -746,7 +746,7 @@ export class PolymarketBot {
 
     return {
       hasAnyExposure: upSize > 0 || downSize > 0,
-      reachedCap: upSize >= cap || downSize >= cap,
+      reachedCap: upSize >= cap && downSize >= cap,
       remainingUp: Number(Math.max(0, cap - upSize).toFixed(6)),
       remainingDown: Number(Math.max(0, cap - downSize).toFixed(6)),
     };
@@ -887,7 +887,7 @@ export class PolymarketBot {
         status: "timeout",
         finalSummary: latestSummary,
         iterations,
-        reason: "Strict cap reached on at least one leg; no further buys allowed",
+        reason: "Strict cap reached; no further buys allowed",
       };
     }
 
