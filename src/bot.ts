@@ -1291,7 +1291,7 @@ export class PolymarketBot {
       this.balancedChecksByCondition.set(currentConditionId, confirmations);
     }
 
-    this.logger.info(
+    this.logger.debug(
       {
         conditionId: currentConditionId,
         slug: currentMarket.slug,
