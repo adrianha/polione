@@ -1,5 +1,13 @@
 import type { Logger } from "pino";
-import type { BotConfig, MarketRecord, PositionSummary, TokenIds } from "./types/domain.js";
+import type {
+  BotConfig,
+  MarketRecord,
+  PositionSummary,
+  RedeemStateRecord,
+  RedeemTerminalReason,
+  RelayerSkippedResult,
+  TokenIds,
+} from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
 import { ClobWsClient } from "./clients/clobWsClient.js";
@@ -9,6 +17,7 @@ import { DataClient } from "./clients/dataClient.js";
 import { MarketDiscoveryService } from "./services/marketDiscovery.js";
 import { TradingEngine } from "./services/tradingEngine.js";
 import { SettlementService } from "./services/settlement.js";
+import { RedeemPrecheckService } from "./services/redeemPrecheck.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
 import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
@@ -18,14 +27,12 @@ type ConditionLifecycle = "new" | "entry-pending" | "recovery-pending" | "force-
 export class PolymarketBot {
   private static readonly RECOVERY_REARM_COOLDOWN_MS = 15_000;
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
-  private static readonly REDEEM_RETRY_BACKOFF_MS = 60_000;
-  private static readonly REDEEM_SUCCESS_COOLDOWN_MS = 5 * 60_000;
 
   private stopped = false;
   private readonly trackedMarkets = new Set<string>();
   private readonly notifiedPlacementSuccess = new Set<string>();
   private readonly mergeAttemptedMarkets = new Set<string>();
-  private readonly redeemAttemptedConditions = new Set<string>();
+  private readonly redeemStates = new Map<string, RedeemStateRecord>();
   private readonly balancedOrderCleanupDone = new Set<string>();
   private readonly balancedChecksByCondition = new Map<string, number>();
   private readonly recentRecoveryPlacements = new Map<
@@ -50,6 +57,7 @@ export class PolymarketBot {
   private readonly marketDiscovery: MarketDiscoveryService;
   private readonly tradingEngine: TradingEngine;
   private readonly settlementService: SettlementService;
+  private readonly redeemPrecheckService: RedeemPrecheckService;
   private readonly telegramClient: TelegramClient;
   private readonly stateStore: StateStore;
   private latestCurrentMarket: MarketRecord | null = null;
@@ -69,6 +77,7 @@ export class PolymarketBot {
     this.marketDiscovery = new MarketDiscoveryService(config, this.gammaClient);
     this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient, this.clobWsClient);
     this.settlementService = new SettlementService(this.relayerClient);
+    this.redeemPrecheckService = new RedeemPrecheckService(config);
     this.telegramClient = new TelegramClient({
       botToken: config.telegramBotToken,
       chatId: config.telegramChatId,
@@ -277,18 +286,168 @@ export class PolymarketBot {
     });
   }
 
-  private shouldAttemptRedeem(conditionId: string): boolean {
-    return !this.redeemAttemptedConditions.has(conditionId);
+  private normalizeError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
   }
 
-  private recordRedeemAttempt(conditionId: string): void {
-    this.redeemAttemptedConditions.add(conditionId);
+  private defaultRedeemState(nowMs: number): RedeemStateRecord {
+    return {
+      status: "pending",
+      attempts: 0,
+      nextRetryAtMs: nowMs,
+      updatedAtMs: nowMs,
+    };
+  }
+
+  private getRedeemState(conditionId: string): RedeemStateRecord {
+    const existing = this.redeemStates.get(conditionId);
+    if (existing) {
+      return existing;
+    }
+
+    const state = this.defaultRedeemState(Date.now());
+    this.redeemStates.set(conditionId, state);
+    return state;
+  }
+
+  private setRedeemState(conditionId: string, next: RedeemStateRecord): void {
+    this.redeemStates.set(conditionId, next);
+  }
+
+  private async persistRedeemStates(): Promise<void> {
+    try {
+      await this.stateStore.saveRedeemStates(this.redeemStates);
+    } catch (error) {
+      this.logger.error(
+        {
+          error,
+          stateFilePath: this.config.stateFilePath,
+        },
+        "Failed to persist redeem states",
+      );
+    }
+  }
+
+  private pruneRedeemStates(nowMs: number): number {
+    let removed = 0;
+    for (const [conditionId, state] of this.redeemStates.entries()) {
+      if (state.status !== "terminal") {
+        continue;
+      }
+
+      const ageMs = nowMs - state.updatedAtMs;
+      if (ageMs >= this.config.redeemTerminalStateTtlMs) {
+        this.redeemStates.delete(conditionId);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  private transitionRedeemState(params: {
+    conditionId: string;
+    status?: RedeemStateRecord["status"];
+    attempts?: number;
+    nextRetryAtMs?: number;
+    lastError?: string;
+    terminalReason?: RedeemTerminalReason;
+  }): RedeemStateRecord {
+    const previous = this.getRedeemState(params.conditionId);
+    const next: RedeemStateRecord = {
+      status: params.status ?? previous.status,
+      attempts: params.attempts ?? previous.attempts,
+      nextRetryAtMs: params.nextRetryAtMs ?? previous.nextRetryAtMs,
+      updatedAtMs: Date.now(),
+      lastError: params.lastError ?? previous.lastError,
+      terminalReason: params.terminalReason ?? previous.terminalReason,
+    };
+    this.setRedeemState(params.conditionId, next);
+    return next;
+  }
+
+  private scheduleRedeemRetry(params: {
+    conditionId: string;
+    reason: string;
+    retryAtMs?: number;
+    incrementAttempt?: boolean;
+  }): RedeemStateRecord {
+    const current = this.getRedeemState(params.conditionId);
+    const attempts = params.incrementAttempt ? current.attempts + 1 : current.attempts;
+    if (attempts >= this.config.redeemMaxRetries) {
+      return this.transitionRedeemState({
+        conditionId: params.conditionId,
+        status: "terminal",
+        attempts,
+        nextRetryAtMs: Date.now(),
+        lastError: params.reason,
+        terminalReason: "max_retries_exhausted",
+      });
+    }
+
+    const retryAtMs = params.retryAtMs ?? Date.now() + Math.max(this.config.redeemRetryBackoffMs, 1000);
+    return this.transitionRedeemState({
+      conditionId: params.conditionId,
+      status: "pending",
+      attempts,
+      nextRetryAtMs: retryAtMs,
+      lastError: params.reason,
+    });
+  }
+
+  private markRedeemTerminal(
+    conditionId: string,
+    terminalReason: RedeemTerminalReason,
+    lastError?: string,
+  ): RedeemStateRecord {
+    return this.transitionRedeemState({
+      conditionId,
+      status: "terminal",
+      nextRetryAtMs: Date.now() + (terminalReason === "success" ? this.config.redeemSuccessCooldownMs : 0),
+      terminalReason,
+      lastError,
+    });
+  }
+
+  private shouldAttemptRedeem(conditionId: string, nowMs: number): boolean {
+    const state = this.getRedeemState(conditionId);
+    if (state.status === "terminal") {
+      return false;
+    }
+    if (state.attempts >= this.config.redeemMaxRetries) {
+      this.markRedeemTerminal(conditionId, "max_retries_exhausted", state.lastError ?? "Retry budget exhausted");
+      return false;
+    }
+    return nowMs >= state.nextRetryAtMs;
+  }
+
+  private isRelayerSkippedResult(value: unknown): value is RelayerSkippedResult {
+    return Boolean(
+      value &&
+        typeof value === "object" &&
+        (value as { skipped?: unknown }).skipped === true &&
+        typeof (value as { reason?: unknown }).reason === "string",
+    );
   }
 
   private async processRedeemablePositions(positionsAddress: string): Promise<void> {
-    if (!this.relayerClient.isAvailable()) {
+    if (!this.config.redeemEnabled || !this.relayerClient.isAvailable()) {
       return;
     }
+
+    const nowMs = Date.now();
+    const prunedTerminalStates = this.pruneRedeemStates(nowMs);
+    let eligibleCount = 0;
+    let submittedCount = 0;
+    let successCount = 0;
+    let skippedRateLimitedCount = 0;
+    let terminalNoBalanceCount = 0;
+    let terminalNotResolvedCount = 0;
+    let failedRetryableCount = 0;
+    let failedTerminalCount = 0;
+    let skippedByStateCount = 0;
 
     const positions = await this.dataClient.getPositions(positionsAddress);
     const redeemableConditionIds = Array.from(
@@ -304,39 +463,158 @@ export class PolymarketBot {
       return;
     }
 
-    for (const conditionId of redeemableConditionIds) {
-      if (!this.shouldAttemptRedeem(conditionId)) {
+    const candidates = redeemableConditionIds.slice(0, this.config.redeemMaxPerLoop);
+    for (const conditionId of candidates) {
+      if (!this.shouldAttemptRedeem(conditionId, nowMs)) {
+        skippedByStateCount += 1;
         continue;
       }
+      eligibleCount += 1;
 
       const locked = await this.withConditionLock(conditionId, async () => {
-        const redeem = await this.settlementService.redeemResolvedPositions(conditionId);
-        this.recordRedeemAttempt(conditionId);
-        const relayerMeta = this.getRelayerMeta(redeem);
-        await this.maybeNotifyRelayerFailover({ action: redeem, conditionId });
-
-        this.logger.info(
-          {
-            redeem,
-            conditionId,
-            relayerBuilder: relayerMeta?.builderLabel,
-            relayerFailoverFrom: relayerMeta?.failoverFrom,
-          },
-          "Redeem flow executed",
-        );
-        await this.notify({
-          title: "redeemResolvedPositions executed",
-          severity: "info",
-          dedupeKey: `redeem-success:${conditionId}`,
+        const precheck = await this.redeemPrecheckService.check({
           conditionId,
-          details: [{ key: "builder", value: relayerMeta?.builderLabel }],
+          positionsAddress: positionsAddress as `0x${string}`,
         });
+
+        if (precheck.status === "not_resolved") {
+          terminalNotResolvedCount += 1;
+          this.scheduleRedeemRetry({
+            conditionId,
+            reason: precheck.reason ?? "Condition not resolved yet",
+          });
+          return;
+        }
+
+        if (precheck.status === "no_redeemable_balance") {
+          terminalNoBalanceCount += 1;
+          this.markRedeemTerminal(conditionId, "already_redeemed", precheck.reason ?? "No redeemable balance");
+          return;
+        }
+
+        if (precheck.status === "permanent_error") {
+          failedTerminalCount += 1;
+          this.markRedeemTerminal(conditionId, "permanent_error", precheck.reason ?? "Permanent precheck error");
+          return;
+        }
+
+        if (precheck.status === "retryable_error") {
+          failedRetryableCount += 1;
+          this.scheduleRedeemRetry({
+            conditionId,
+            reason: precheck.reason ?? "Retryable precheck error",
+            incrementAttempt: true,
+          });
+          return;
+        }
+
+        this.transitionRedeemState({
+          conditionId,
+          status: "submitted",
+          attempts: this.getRedeemState(conditionId).attempts + 1,
+          nextRetryAtMs: Date.now(),
+          lastError: undefined,
+          terminalReason: undefined,
+        });
+
+        try {
+          const redeem = await this.settlementService.redeemResolvedPositions(conditionId);
+          const relayerMeta = this.getRelayerMeta(redeem);
+          await this.maybeNotifyRelayerFailover({ action: redeem, conditionId });
+
+          if (this.isRelayerSkippedResult(redeem) && redeem.reason === "relayer_rate_limited") {
+            skippedRateLimitedCount += 1;
+            this.scheduleRedeemRetry({
+              conditionId,
+              reason: redeem.reason,
+              retryAtMs: redeem.retryAt ?? Date.now() + this.config.redeemRetryBackoffMs,
+            });
+            this.logger.warn(
+              {
+                conditionId,
+                retryAt: redeem.retryAt,
+              },
+              "Redeem skipped: relayer is rate limited",
+            );
+            return;
+          }
+
+          if (!redeem) {
+            failedRetryableCount += 1;
+            this.scheduleRedeemRetry({
+              conditionId,
+              reason: "Relayer unavailable or returned null",
+              incrementAttempt: true,
+            });
+            return;
+          }
+
+          submittedCount += 1;
+          successCount += 1;
+          this.markRedeemTerminal(conditionId, "success");
+          this.logger.info(
+            {
+              redeem,
+              conditionId,
+              relayerBuilder: relayerMeta?.builderLabel,
+              relayerFailoverFrom: relayerMeta?.failoverFrom,
+            },
+            "Redeem flow executed",
+          );
+          await this.notify({
+            title: "redeemResolvedPositions executed",
+            severity: "info",
+            dedupeKey: `redeem-success:${conditionId}`,
+            conditionId,
+            details: [{ key: "builder", value: relayerMeta?.builderLabel }],
+          });
+        } catch (error) {
+          failedRetryableCount += 1;
+          const message = this.normalizeError(error);
+          const nextState = this.scheduleRedeemRetry({
+            conditionId,
+            reason: message,
+            incrementAttempt: true,
+          });
+          if (nextState.status === "terminal") {
+            failedTerminalCount += 1;
+          }
+
+          this.logger.warn(
+            {
+              conditionId,
+              attempts: nextState.attempts,
+              nextRetryAtMs: nextState.nextRetryAtMs,
+              error,
+            },
+            "Redeem attempt failed and was scheduled for retry",
+          );
+        }
       });
 
       if (!locked.executed) {
         this.logger.debug({ conditionId }, "Redeem loop skipped condition: already in flight");
       }
     }
+
+    await this.persistRedeemStates();
+    this.logger.info(
+      {
+        candidates: redeemableConditionIds.length,
+        cappedCandidates: candidates.length,
+        eligible: eligibleCount,
+        submitted: submittedCount,
+        success: successCount,
+        skippedRateLimited: skippedRateLimitedCount,
+        terminalNoBalance: terminalNoBalanceCount,
+        terminalNotResolved: terminalNotResolvedCount,
+        failedRetryable: failedRetryableCount,
+        failedTerminal: failedTerminalCount,
+        skippedByState: skippedByStateCount,
+        prunedTerminalStates,
+      },
+      "Redeem loop summary",
+    );
   }
 
   private async markTrackedMarket(conditionId: string): Promise<void> {
@@ -953,9 +1231,15 @@ export class PolymarketBot {
 
   private async loadPersistedTrackedMarkets(): Promise<void> {
     try {
-      const loaded = await this.stateStore.loadTrackedMarkets();
-      for (const conditionId of loaded) {
+      const [loadedMarkets, loadedRedeemStates] = await Promise.all([
+        this.stateStore.loadTrackedMarkets(),
+        this.stateStore.loadRedeemStates(),
+      ]);
+      for (const conditionId of loadedMarkets) {
         this.trackedMarkets.add(conditionId);
+      }
+      for (const [conditionId, state] of loadedRedeemStates.entries()) {
+        this.redeemStates.set(conditionId, state);
       }
     } catch (error) {
       this.logger.error(
@@ -963,7 +1247,7 @@ export class PolymarketBot {
           error,
           stateFilePath: this.config.stateFilePath,
         },
-        "Failed to load persisted tracked market state",
+        "Failed to load persisted bot state",
       );
     }
   }
@@ -1840,6 +2124,7 @@ export class PolymarketBot {
         relayerEnabled: this.relayerClient.isAvailable(),
         availableRelayerBuilders: this.relayerClient.getAvailableBuilderLabels(),
         persistedTrackedMarketCount: this.trackedMarkets.size,
+        persistedRedeemStateCount: this.redeemStates.size,
         stateFilePath: this.config.stateFilePath,
       },
       "Bot initialized",
@@ -1862,6 +2147,9 @@ export class PolymarketBot {
         { key: "currentLoopSleepSec", value: this.config.currentLoopSleepSeconds },
         { key: "positionRecheckSec", value: this.config.positionRecheckSeconds },
         { key: "entryReconcileSec", value: this.config.entryReconcileSeconds },
+        { key: "redeemEnabled", value: this.config.redeemEnabled ? "true" : "false" },
+        { key: "redeemLoopSleepSec", value: this.config.redeemLoopSleepSeconds },
+        { key: "redeemMaxRetries", value: this.config.redeemMaxRetries },
         { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
         { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
         { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },

@@ -34,6 +34,12 @@ export interface BotConfig {
   loopSleepSeconds: number;
   currentLoopSleepSeconds: number;
   redeemLoopSleepSeconds: number;
+  redeemEnabled: boolean;
+  redeemMaxRetries: number;
+  redeemRetryBackoffMs: number;
+  redeemSuccessCooldownMs: number;
+  redeemMaxPerLoop: number;
+  redeemTerminalStateTtlMs: number;
   positionRecheckSeconds: number;
   entryReconcileSeconds: number;
   entryReconcilePollSeconds: number;
@@ -129,4 +135,23 @@ export interface RelayerDryRunResult {
   dryRun: true;
   intent: TradeIntent;
   meta?: RelayerExecutionMeta;
+}
+
+export type RedeemStatus = "pending" | "eligible" | "submitted" | "terminal";
+
+export type RedeemTerminalReason =
+  | "success"
+  | "already_redeemed"
+  | "no_redeemable_balance"
+  | "not_resolved"
+  | "max_retries_exhausted"
+  | "permanent_error";
+
+export interface RedeemStateRecord {
+  status: RedeemStatus;
+  attempts: number;
+  nextRetryAtMs: number;
+  updatedAtMs: number;
+  lastError?: string;
+  terminalReason?: RedeemTerminalReason;
 }
