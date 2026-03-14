@@ -26,6 +26,7 @@ type ConditionLifecycle = "new" | "entry-pending" | "recovery-pending" | "force-
 
 export class PolymarketBot {
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
+  private static readonly MIN_MARKET_MAKER_ORDER_SIZE = 5;
 
   private stopped = false;
   private readonly trackedMarkets = new Set<string>();
@@ -1068,6 +1069,23 @@ export class PolymarketBot {
         reason: "Missing-leg conservative size resolved to zero after cap clamp",
       };
     }
+
+    if (conservativeMissingAmount < PolymarketBot.MIN_MARKET_MAKER_ORDER_SIZE) {
+      this.logger.info(
+        {
+          conditionId: params.conditionId,
+          missingLegTokenId: imbalance.missingLegTokenId,
+          effectiveMissingAmount,
+          remainingAllowance: remainingForMissingLeg,
+          recoveryPolicy,
+          cappedMissingAmount,
+          conservativeMissingAmount,
+        },
+        "Missing-leg recovery order size below minimum order size; Use minimum order size instead.",
+      );
+      conservativeMissingAmount = this.config.orderSize;
+    }
+
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
       nextPrice,
