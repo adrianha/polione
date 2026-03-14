@@ -1035,7 +1035,7 @@ export class PolymarketBot {
       };
     }
 
-    let top: { bestBid: number; bestAsk: number };
+    let top: { bestBid: number; bestAsk: number; topBids: number[]; topAsks: number[] };
     try {
       top = await this.tradingEngine.getTopOfBookForCondition({
         conditionId: params.conditionId,
@@ -1073,6 +1073,9 @@ export class PolymarketBot {
       }
       throw error;
     }
+    const topBids = Array.isArray(top.topBids) && top.topBids.length > 0 ? top.topBids : [top.bestBid];
+    const topAsks = Array.isArray(top.topAsks) && top.topAsks.length > 0 ? top.topAsks : [top.bestAsk];
+
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
       bestAsk: top.bestAsk,
@@ -1082,8 +1085,13 @@ export class PolymarketBot {
 
     const canCrossBestAsk = top.bestAsk > 0 && top.bestAsk <= maxMissingPrice;
     const nextPrice = canCrossBestAsk ? this.roundPrice(top.bestAsk) : makerPrice;
+    const lowPriceGuardThreshold = 0.05;
+    const lowPriceFallbackBuffer = 0.05;
+    const fallbackPrice = this.roundPrice(1 - params.filledLegAvgPrice - lowPriceFallbackBuffer);
+    const guardTriggered = nextPrice > 0 && nextPrice < lowPriceGuardThreshold;
+    const finalPrice = guardTriggered ? fallbackPrice : nextPrice;
 
-    if (nextPrice <= 0) {
+    if (finalPrice <= 0) {
       return {
         status: "timeout",
         finalSummary: latestSummary,
@@ -1102,7 +1110,7 @@ export class PolymarketBot {
 
     if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
       const elapsedMs = Date.now() - params.previousPlacement.placedAtMs;
-      const priceDelta = Math.abs(nextPrice - params.previousPlacement.price);
+      const priceDelta = Math.abs(finalPrice - params.previousPlacement.price);
       repriceContext = {
         previousPrice: params.previousPlacement.price,
         elapsedMs,
@@ -1127,20 +1135,20 @@ export class PolymarketBot {
           status: "unchanged-price",
           finalSummary: latestSummary,
           iterations,
-          lastPlacedPrice: nextPrice,
+          lastPlacedPrice: finalPrice,
           missingLegTokenId: imbalance.missingLegTokenId,
           reason: "Skipped re-order because recovery price is unchanged",
         };
       }
     }
 
-    const expectedLockPnlPerShare = 1 - params.filledLegAvgPrice - nextPrice - this.config.forceWindowFeeBuffer;
+    const expectedLockPnlPerShare = 1 - params.filledLegAvgPrice - finalPrice - this.config.forceWindowFeeBuffer;
     if (expectedLockPnlPerShare < targetMinProfitPerShare) {
       return {
         status: "timeout",
         finalSummary: latestSummary,
         iterations,
-        lastPlacedPrice: nextPrice,
+        lastPlacedPrice: finalPrice,
         missingLegTokenId: imbalance.missingLegTokenId,
         reason: "Missing-leg edge below time-aware profitability target",
       };
@@ -1148,14 +1156,14 @@ export class PolymarketBot {
 
     const hasSamePriceOpenRecoveryOrder = await this.tradingEngine.hasOpenBuyOrderAtPrice(
       imbalance.missingLegTokenId,
-      nextPrice,
+      finalPrice,
     );
     if (hasSamePriceOpenRecoveryOrder) {
       return {
         status: "unchanged-price",
         finalSummary: latestSummary,
         iterations,
-        lastPlacedPrice: nextPrice,
+        lastPlacedPrice: finalPrice,
         missingLegTokenId: imbalance.missingLegTokenId,
         reason: "Skipped re-order because equivalent open recovery order already exists",
       };
@@ -1217,14 +1225,22 @@ export class PolymarketBot {
         maxMissingPrice,
         bestBid: top.bestBid,
         bestAsk: top.bestAsk,
+        topBids,
+        topAsks,
+        spread: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)),
         makerPrice,
         canCrossBestAsk,
         nextPrice,
+        finalPrice,
+        lowPriceGuardThreshold,
+        lowPriceFallbackBuffer,
+        fallbackPrice,
+        guardTriggered,
         entryContinuousRepriceIntervalMs: this.config.entryContinuousRepriceIntervalMs,
         entryContinuousMinPriceDelta: this.config.entryContinuousMinPriceDelta,
         repriceContext,
         action: "placeSingleLimitBuyAtPrice",
-        orderPrice: nextPrice,
+        orderPrice: finalPrice,
         orderSize: cappedMissingAmount,
       },
       "Missing-leg recovery placement decision context",
@@ -1233,7 +1249,7 @@ export class PolymarketBot {
       .notify({
         title: "Missing-leg recovery placement decision",
         severity: "info",
-        dedupeKey: `missing-leg-recovery-placement:${params.conditionId}:${imbalance.missingLegTokenId}:${nextPrice}`,
+        dedupeKey: `missing-leg-recovery-placement:${params.conditionId}:${imbalance.missingLegTokenId}:${finalPrice}:${top.bestBid}:${top.bestAsk}`,
         slug: params.market.slug,
         conditionId: params.conditionId,
         upTokenId: params.tokenIds.upTokenId,
@@ -1251,13 +1267,25 @@ export class PolymarketBot {
           { key: "maxMissingPrice", value: maxMissingPrice },
           { key: "bestBid", value: top.bestBid },
           { key: "bestAsk", value: top.bestAsk },
+          { key: "bid1", value: topBids[0] },
+          { key: "bid2", value: topBids[1] },
+          { key: "bid3", value: topBids[2] },
+          { key: "ask1", value: topAsks[0] },
+          { key: "ask2", value: topAsks[1] },
+          { key: "ask3", value: topAsks[2] },
+          { key: "spread", value: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)) },
           { key: "makerPrice", value: makerPrice },
           { key: "canCrossBestAsk", value: canCrossBestAsk ? "yes" : "no" },
           { key: "nextPrice", value: nextPrice },
+          { key: "finalPrice", value: finalPrice },
+          { key: "guardTriggered", value: guardTriggered ? "yes" : "no" },
+          { key: "guardThreshold", value: lowPriceGuardThreshold },
+          { key: "fallbackBuffer", value: lowPriceFallbackBuffer },
+          { key: "fallbackPrice", value: fallbackPrice },
           { key: "previousPrice", value: repriceContext?.previousPrice },
           { key: "priceDelta", value: repriceContext?.priceDelta },
           { key: "elapsedMs", value: repriceContext?.elapsedMs },
-          { key: "orderPrice", value: nextPrice },
+          { key: "orderPrice", value: finalPrice },
           { key: "orderSize", value: cappedMissingAmount },
         ],
       })
@@ -1274,7 +1302,7 @@ export class PolymarketBot {
 
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
-      nextPrice,
+      finalPrice,
       cappedMissingAmount,
     );
     const orderId = this.tradingEngine.extractOrderId(orderResult);
@@ -1283,7 +1311,7 @@ export class PolymarketBot {
       status: "placed",
       finalSummary: latestSummary,
       iterations,
-      lastPlacedPrice: nextPrice,
+      lastPlacedPrice: finalPrice,
       missingLegTokenId: imbalance.missingLegTokenId,
       placedSize: cappedMissingAmount,
       orderId,

@@ -224,13 +224,28 @@ export class TradingEngine {
     return this.getBestAskPrice(params.tokenId);
   }
 
-  async getTopOfBook(tokenId: string): Promise<{ bestBid: number; bestAsk: number }> {
+  async getTopOfBook(tokenId: string): Promise<{
+    bestBid: number;
+    bestAsk: number;
+    topBids: number[];
+    topAsks: number[];
+  }> {
     const book = await this.clobClient.getOrderBook(tokenId);
-    const bestBid = this.parsePositive(book.bids?.[0]?.price);
-    const bestAsk = this.parsePositive(book.asks?.[0]?.price);
+    const topBids = (book.bids ?? [])
+      .map((level) => this.parsePositive(level?.price))
+      .filter((price) => price > 0)
+      .slice(0, 3);
+    const topAsks = (book.asks ?? [])
+      .map((level) => this.parsePositive(level?.price))
+      .filter((price) => price > 0)
+      .slice(0, 3);
+    const bestBid = topBids[0] ?? 0;
+    const bestAsk = topAsks[0] ?? 0;
     return {
       bestBid,
       bestAsk,
+      topBids,
+      topAsks,
     };
   }
 
@@ -238,7 +253,12 @@ export class TradingEngine {
     conditionId: string;
     tokenIds: TokenIds;
     tokenId: string;
-  }): Promise<{ bestBid: number; bestAsk: number }> {
+  }): Promise<{
+    bestBid: number;
+    bestAsk: number;
+    topBids: number[];
+    topAsks: number[];
+  }> {
     this.assertTokenInConditionContext(params);
     return this.getTopOfBook(params.tokenId);
   }
