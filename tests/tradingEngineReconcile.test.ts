@@ -227,7 +227,7 @@ describe("trading engine entry reconciliation", () => {
   it("enforces strict condition token context for top of book", async () => {
     const clobClient = {
       getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
-      getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
+      getBestBookPriceForSide: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -238,7 +238,7 @@ describe("trading engine entry reconciliation", () => {
     const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
     await expect(
-      engine.getTopOfBookForCondition({
+      engine.getBestBidAskSnapshotForCondition({
         conditionId: "cond-a",
         tokenIds: { upTokenId: "up-a", downTokenId: "down-a" },
         tokenId: "up-b",
@@ -249,7 +249,7 @@ describe("trading engine entry reconciliation", () => {
   it("enforces strict condition token context for best ask", async () => {
     const clobClient = {
       getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
-      getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
+      getBestBookPriceForSide: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -274,7 +274,7 @@ describe("trading engine entry reconciliation", () => {
         bids: [{ price: "0.01" }, { price: "0.03" }, { price: "0.02" }],
         asks: [{ price: "0.99" }, { price: "0.97" }, { price: "0.98" }],
       }),
-      getPrice: async (_tokenId: string, side: "BUY" | "SELL") => (side === "BUY" ? 0.57 : 0.58),
+      getBestBookPriceForSide: async (_tokenId: string, side: "BUY" | "SELL") => (side === "SELL" ? 0.57 : 0.58),
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -284,7 +284,7 @@ describe("trading engine entry reconciliation", () => {
     };
     const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
-    const top = await engine.getTopOfBook("token-a");
+    const top = await engine.getBestBidAskSnapshot("token-a");
     expect(top.rawTopBids).toEqual([0.57]);
     expect(top.rawTopAsks).toEqual([0.58]);
     expect(top.topBids).toEqual([0.57]);
@@ -300,7 +300,7 @@ describe("trading engine entry reconciliation", () => {
         bids: [{ price: "0.44" }, { price: "0.43" }, { price: "0.42" }],
         asks: [{ price: "0.47" }, { price: "0.48" }, { price: "0.49" }],
       }),
-      getPrice: async (_tokenId: string, side: "BUY" | "SELL") => (side === "BUY" ? 0.44 : 0.47),
+      getBestBookPriceForSide: async (_tokenId: string, side: "BUY" | "SELL") => (side === "SELL" ? 0.44 : 0.47),
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -310,7 +310,7 @@ describe("trading engine entry reconciliation", () => {
     };
     const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
-    const top = await engine.getTopOfBook("token-a");
+    const top = await engine.getBestBidAskSnapshot("token-a");
     expect(top.priceSource).toBe("sdk");
     expect(top.bestBid).toBe(0.44);
     expect(top.bestAsk).toBe(0.47);
@@ -321,7 +321,7 @@ describe("trading engine entry reconciliation", () => {
   it("rejects empty token ids when fetching top-of-book", async () => {
     const clobClient = {
       getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
-      getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
+      getBestBookPriceForSide: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -331,6 +331,6 @@ describe("trading engine entry reconciliation", () => {
     };
     const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
-    await expect(engine.getTopOfBook("   ")).rejects.toThrow("Token id is required");
+    await expect(engine.getBestBidAskSnapshot("   ")).rejects.toThrow("Token id is required");
   });
 });

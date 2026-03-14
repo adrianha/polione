@@ -1047,7 +1047,7 @@ export class PolymarketBot {
       sdkBestAsk: number;
     };
     try {
-      top = await this.tradingEngine.getTopOfBookForCondition({
+      top = await this.tradingEngine.getBestBidAskSnapshotForCondition({
         conditionId: params.conditionId,
         tokenIds: params.tokenIds,
         tokenId: imbalance.missingLegTokenId,

@@ -234,7 +234,7 @@ export class TradingEngine {
     return this.getBestAskPrice(params.tokenId);
   }
 
-  async getTopOfBook(tokenId: string): Promise<{
+  async getBestBidAskSnapshot(tokenId: string): Promise<{
     bestBid: number;
     bestAsk: number;
     topBids: number[];
@@ -247,8 +247,8 @@ export class TradingEngine {
   }> {
     const validatedTokenId = this.validateTokenId(tokenId);
     const [sdkBestBidRaw, sdkBestAskRaw] = await Promise.all([
-      this.clobClient.getPrice(validatedTokenId, "BUY").catch(() => 0),
-      this.clobClient.getPrice(validatedTokenId, "SELL").catch(() => 0),
+      this.clobClient.getBestBookPriceForSide(validatedTokenId, "SELL").catch(() => 0),
+      this.clobClient.getBestBookPriceForSide(validatedTokenId, "BUY").catch(() => 0),
     ]);
     const sdkBestBid = this.parsePositive(sdkBestBidRaw);
     const sdkBestAsk = this.parsePositive(sdkBestAskRaw);
@@ -271,7 +271,7 @@ export class TradingEngine {
     };
   }
 
-  async getTopOfBookForCondition(params: {
+  async getBestBidAskSnapshotForCondition(params: {
     conditionId: string;
     tokenIds: TokenIds;
     tokenId: string;
@@ -292,7 +292,7 @@ export class TradingEngine {
       tokenIds: params.tokenIds,
       tokenId: validatedTokenId,
     });
-    return this.getTopOfBook(validatedTokenId);
+    return this.getBestBidAskSnapshot(validatedTokenId);
   }
 
   async hasOpenBuyOrderAtPrice(tokenId: string, price: number): Promise<boolean> {

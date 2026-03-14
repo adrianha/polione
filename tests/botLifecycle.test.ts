@@ -103,7 +103,7 @@ const createBot = async () => {
       orderId: null,
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
-    getTopOfBookForCondition: vi.fn(async () => ({
+    getBestBidAskSnapshotForCondition: vi.fn(async () => ({
       bestBid: 0.35,
       bestAsk: 0.36,
       topBids: [0.35, 0.34, 0.33],
@@ -181,7 +181,7 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.getTopOfBookForCondition).toHaveBeenCalled();
+      expect(bot.tradingEngine.getBestBidAskSnapshotForCondition).toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
       expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
@@ -592,7 +592,7 @@ describe("bot lifecycle", () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
+    bot.tradingEngine.getBestBidAskSnapshotForCondition = vi.fn(async () => ({
       bestBid: 0.349,
       bestAsk: 0.351,
       topBids: [0.349, 0.348],
