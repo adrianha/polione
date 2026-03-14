@@ -149,6 +149,34 @@ export class PolymarketBot {
     await this.telegramClient.sendHtml(message, params.dedupeKey);
   }
 
+  private async notifyOperationalIssue(params: {
+    title: string;
+    severity: "warn" | "error";
+    dedupeKey: string;
+    slug?: string;
+    conditionId?: string;
+    upTokenId?: string;
+    downTokenId?: string;
+    error?: unknown;
+    details?: Array<{ key: string; value: string | number | null | undefined }>;
+  }): Promise<void> {
+    const details = [...(params.details ?? [])];
+    if (params.error !== undefined) {
+      details.push({ key: "error", value: this.normalizeError(params.error) });
+    }
+
+    await this.notify({
+      title: params.title,
+      severity: params.severity,
+      dedupeKey: params.dedupeKey,
+      slug: params.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.upTokenId,
+      downTokenId: params.downTokenId,
+      details,
+    });
+  }
+
   private async notifyPlacementSuccessOnce(params: {
     conditionId: string;
     slug?: string;
@@ -233,6 +261,16 @@ export class PolymarketBot {
         },
         "Failed to cancel residual entry orders after balance",
       );
+      await this.notifyOperationalIssue({
+        title: "Failed to cancel residual entry orders",
+        severity: "warn",
+        dedupeKey: `cancel-after-balance-failed:${context.path}:${context.conditionId}`,
+        conditionId: context.conditionId,
+        upTokenId: tokenIds.upTokenId,
+        downTokenId: tokenIds.downTokenId,
+        error,
+        details: [{ key: "path", value: context.path }],
+      });
       return false;
     }
   }
@@ -333,6 +371,13 @@ export class PolymarketBot {
         },
         "Failed to persist redeem states",
       );
+      await this.notifyOperationalIssue({
+        title: "Failed to persist redeem states",
+        severity: "error",
+        dedupeKey: `persist-redeem-states:${this.config.stateFilePath}`,
+        error,
+        details: [{ key: "stateFilePath", value: this.config.stateFilePath }],
+      });
     }
   }
 
@@ -635,6 +680,14 @@ export class PolymarketBot {
         },
         "Failed to persist tracked market state",
       );
+      await this.notifyOperationalIssue({
+        title: "Failed to persist tracked market",
+        severity: "error",
+        dedupeKey: `persist-tracked-market:${conditionId}`,
+        conditionId,
+        error,
+        details: [{ key: "stateFilePath", value: this.config.stateFilePath }],
+      });
     }
   }
 
@@ -1007,6 +1060,16 @@ export class PolymarketBot {
           },
           "Skipped missing-leg recovery: token is outside current market context",
         );
+        await this.notifyOperationalIssue({
+          title: "Skipped missing-leg recovery (market mismatch)",
+          severity: "warn",
+          dedupeKey: `market-token-mismatch:recovery:${params.conditionId}:${imbalance.missingLegTokenId}`,
+          slug: params.market.slug,
+          conditionId: params.conditionId,
+          upTokenId: params.tokenIds.upTokenId,
+          downTokenId: params.tokenIds.downTokenId,
+          details: [{ key: "tokenId", value: imbalance.missingLegTokenId }],
+        });
         return {
           status: "timeout",
           finalSummary: latestSummary,
@@ -1211,6 +1274,16 @@ export class PolymarketBot {
           },
           "Skipped force-window hedge: missing-leg token is outside current market context",
         );
+        await this.notifyOperationalIssue({
+          title: "Skipped force-window hedge (market mismatch)",
+          severity: "warn",
+          dedupeKey: `market-token-mismatch:force-window:${conditionId}:${missingLegTokenId}`,
+          slug: market.slug,
+          conditionId,
+          upTokenId: tokenIds.upTokenId,
+          downTokenId: tokenIds.downTokenId,
+          details: [{ key: "tokenId", value: missingLegTokenId }],
+        });
         return { status: "imbalanced" };
       }
       throw error;
@@ -1404,6 +1477,13 @@ export class PolymarketBot {
         },
         "Failed to load persisted bot state",
       );
+      await this.notifyOperationalIssue({
+        title: "Failed to load persisted bot state",
+        severity: "error",
+        dedupeKey: `load-bot-state:${this.config.stateFilePath}`,
+        error,
+        details: [{ key: "stateFilePath", value: this.config.stateFilePath }],
+      });
     }
   }
 
@@ -1420,6 +1500,13 @@ export class PolymarketBot {
         { slug: currentMarket.slug, conditionId: currentConditionId },
         "Tracked current market missing token IDs",
       );
+      await this.notifyOperationalIssue({
+        title: "Tracked current market missing token IDs",
+        severity: "warn",
+        dedupeKey: `tracked-market-missing-token-ids:${currentConditionId}`,
+        slug: currentMarket.slug,
+        conditionId: currentConditionId,
+      });
       return;
     }
 
@@ -1746,6 +1833,12 @@ export class PolymarketBot {
     const entryTokenIds = this.marketDiscovery.getTokenIds(entryMarket);
     if (!entryTokenIds) {
       this.logger.warn({ slug: entryMarket.slug }, "Entry market found but no token IDs");
+      await this.notifyOperationalIssue({
+        title: "Entry market missing token IDs",
+        severity: "warn",
+        dedupeKey: `entry-market-missing-token-ids:${entryMarket.slug}`,
+        slug: entryMarket.slug,
+      });
       return this.config.loopSleepSeconds;
     }
 
@@ -1754,6 +1847,12 @@ export class PolymarketBot {
     const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
     if (!entryConditionId) {
       this.logger.warn({ slug: entryMarket.slug }, "Entry market missing condition ID");
+      await this.notifyOperationalIssue({
+        title: "Entry market missing condition ID",
+        severity: "warn",
+        dedupeKey: `entry-market-missing-condition-id:${entryMarket.slug}`,
+        slug: entryMarket.slug,
+      });
       return this.config.loopSleepSeconds;
     }
 
@@ -2059,6 +2158,11 @@ export class PolymarketBot {
 
     if (!currentMarket && !nextMarket) {
       this.logger.warn("No active market found, retrying");
+      await this.notifyOperationalIssue({
+        title: "No active market found",
+        severity: "warn",
+        dedupeKey: "no-active-market",
+      });
     }
   }
 
@@ -2068,6 +2172,12 @@ export class PolymarketBot {
         await this.updateMarketSnapshot();
       } catch (error) {
         this.logger.error({ error }, "Discovery loop error");
+        await this.notifyOperationalIssue({
+          title: "Discovery loop error",
+          severity: "error",
+          dedupeKey: "loop-error:discovery",
+          error,
+        });
       }
 
       await sleep(this.config.loopSleepSeconds);
@@ -2111,6 +2221,12 @@ export class PolymarketBot {
         }
       } catch (error) {
         this.logger.error({ error }, "Current market loop error");
+        await this.notifyOperationalIssue({
+          title: "Current market loop error",
+          severity: "error",
+          dedupeKey: "loop-error:current-market",
+          error,
+        });
       }
 
       await sleep(this.config.currentLoopSleepSeconds);
@@ -2163,6 +2279,12 @@ export class PolymarketBot {
         }
       } catch (error) {
         this.logger.warn({ error }, "Telegram command loop error");
+        await this.notifyOperationalIssue({
+          title: "Telegram command loop error",
+          severity: "warn",
+          dedupeKey: "loop-error:telegram-command",
+          error,
+        });
       }
 
       await sleep(Math.max(2, this.config.loopSleepSeconds));
@@ -2226,6 +2348,12 @@ export class PolymarketBot {
         }
       } catch (error) {
         this.logger.error({ error }, "Entry loop error");
+        await this.notifyOperationalIssue({
+          title: "Entry loop error",
+          severity: "error",
+          dedupeKey: "loop-error:entry",
+          error,
+        });
       }
 
       await sleep(sleepSeconds);
@@ -2238,6 +2366,12 @@ export class PolymarketBot {
         await this.processRedeemablePositions(positionsAddress);
       } catch (error) {
         this.logger.error({ error }, "Redeem loop error");
+        await this.notifyOperationalIssue({
+          title: "Redeem loop error",
+          severity: "error",
+          dedupeKey: "loop-error:redeem",
+          error,
+        });
       }
 
       await sleep(this.config.redeemLoopSleepSeconds);
