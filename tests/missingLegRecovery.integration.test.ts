@@ -112,6 +112,13 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
       topAsks: [0.36, 0.37, 0.38],
       rawTopBids: [0.35, 0.34, 0.33],
       rawTopAsks: [0.36, 0.37, 0.38],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.35,
+      restBestAsk: 0.36,
+      sdkBestBid: 0.35,
+      sdkBestAsk: 0.36,
     })),
     getBestAskPrice: vi.fn(async () => 0.4),
     getBestAskPriceForCondition: vi.fn(async () => 0.4),
@@ -205,6 +212,13 @@ describe("missing-leg recovery integration", () => {
       topAsks: [0.06],
       rawTopBids: [0.01],
       rawTopAsks: [0.06],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.01,
+      restBestAsk: 0.06,
+      sdkBestBid: 0.01,
+      sdkBestAsk: 0.06,
     }));
     bot.dataClient.getPositions = vi
       .fn()
@@ -236,6 +250,13 @@ describe("missing-leg recovery integration", () => {
       topAsks: [0.351, 0.352],
       rawTopBids: [0.349, 0.348],
       rawTopAsks: [0.351, 0.352],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.349,
+      restBestAsk: 0.351,
+      sdkBestBid: 0.349,
+      sdkBestAsk: 0.351,
     }));
     bot.dataClient.getPositions = vi
       .fn()
@@ -277,6 +298,13 @@ describe("missing-leg recovery integration", () => {
       topAsks: [0.351, 0.352],
       rawTopBids: [0.349, 0.348],
       rawTopAsks: [0.351, 0.352],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.349,
+      restBestAsk: 0.351,
+      sdkBestBid: 0.349,
+      sdkBestAsk: 0.351,
     }));
     bot.dataClient.getPositions = vi
       .fn()

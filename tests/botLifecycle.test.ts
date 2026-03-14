@@ -111,6 +111,13 @@ const createBot = async () => {
       topAsks: [0.36, 0.37, 0.38],
       rawTopBids: [0.35, 0.34, 0.33],
       rawTopAsks: [0.36, 0.37, 0.38],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.35,
+      restBestAsk: 0.36,
+      sdkBestBid: 0.35,
+      sdkBestAsk: 0.36,
     })),
     getBestAskPrice: vi.fn(async () => 0.4),
     getBestAskPriceForCondition: vi.fn(async () => 0.4),
@@ -597,6 +604,13 @@ describe("bot lifecycle", () => {
       topAsks: [0.351, 0.352],
       rawTopBids: [0.349, 0.348],
       rawTopAsks: [0.351, 0.352],
+      priceSource: "rest",
+      wsBestBid: 0,
+      wsBestAsk: 0,
+      restBestBid: 0.349,
+      restBestAsk: 0.351,
+      sdkBestBid: 0.349,
+      sdkBestAsk: 0.351,
     }));
 
     bot.recentRecoveryPlacements.set("cond-1", {

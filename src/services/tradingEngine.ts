@@ -196,6 +196,15 @@ export class TradingEngine {
     return parsed;
   }
 
+  private validateTokenId(tokenId: string): string {
+    const normalized = tokenId.trim();
+    if (!normalized) {
+      throw new Error("Token id is required");
+    }
+
+    return normalized;
+  }
+
   private getBestAsk(book: OrderBookSummary): number {
     const ask = this.parsePositive(book.asks?.[0]?.price);
     return ask > 0 ? ask : Number.POSITIVE_INFINITY;
@@ -213,7 +222,8 @@ export class TradingEngine {
   }
 
   async getBestAskPrice(tokenId: string): Promise<number> {
-    const book = await this.clobClient.getOrderBook(tokenId);
+    const validatedTokenId = this.validateTokenId(tokenId);
+    const book = await this.clobClient.getOrderBook(validatedTokenId);
     return this.getBestAsk(book);
   }
 
@@ -238,9 +248,16 @@ export class TradingEngine {
     wsBestAsk: number;
     restBestBid: number;
     restBestAsk: number;
+    sdkBestBid: number;
+    sdkBestAsk: number;
   }> {
-    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
-    const book = await this.clobClient.getOrderBook(tokenId);
+    const validatedTokenId = this.validateTokenId(tokenId);
+    const wsQuote = this.clobWsClient?.getFreshQuote(validatedTokenId) ?? null;
+    const book = await this.clobClient.getOrderBook(validatedTokenId);
+    const [sdkBestBidRaw, sdkBestAskRaw] = await Promise.all([
+      this.clobClient.getPrice(validatedTokenId, "BUY").catch(() => 0),
+      this.clobClient.getPrice(validatedTokenId, "SELL").catch(() => 0),
+    ]);
     const rawTopBids = (book.bids ?? [])
       .map((level) => this.parsePositive(level?.price))
       .filter((price) => price > 0)
@@ -255,12 +272,30 @@ export class TradingEngine {
     const restBestAsk = topAsks[0] ?? 0;
     const wsBestBid = wsQuote?.bestBid ?? 0;
     const wsBestAsk = wsQuote?.bestAsk ?? 0;
-    const wsSpread = wsBestBid > 0 && wsBestAsk > 0 ? wsBestAsk - wsBestBid : Number.POSITIVE_INFINITY;
-    const restSpread = restBestBid > 0 && restBestAsk > 0 ? restBestAsk - restBestBid : Number.POSITIVE_INFINITY;
-    const useWsQuote = wsBestBid > 0 && wsBestAsk > 0 && wsSpread > 0 && wsSpread <= restSpread;
-    const bestBid = useWsQuote ? wsBestBid : restBestBid;
-    const bestAsk = useWsQuote ? wsBestAsk : restBestAsk;
-    const priceSource = useWsQuote ? "ws" : "rest";
+    const sdkBestBid = this.parsePositive(sdkBestBidRaw);
+    const sdkBestAsk = this.parsePositive(sdkBestAskRaw);
+
+    const candidates: Array<{ source: "ws" | "rest"; bid: number; ask: number; spread: number }> = [];
+
+    if (wsBestBid > 0 && wsBestAsk > 0 && wsBestAsk > wsBestBid) {
+      candidates.push({ source: "ws", bid: wsBestBid, ask: wsBestAsk, spread: wsBestAsk - wsBestBid });
+    }
+
+    const restCandidateBid = sdkBestBid > 0 ? sdkBestBid : restBestBid;
+    const restCandidateAsk = sdkBestAsk > 0 ? sdkBestAsk : restBestAsk;
+    if (restCandidateBid > 0 && restCandidateAsk > 0 && restCandidateAsk > restCandidateBid) {
+      candidates.push({
+        source: "rest",
+        bid: restCandidateBid,
+        ask: restCandidateAsk,
+        spread: restCandidateAsk - restCandidateBid,
+      });
+    }
+
+    const selected = candidates.sort((a, b) => a.spread - b.spread)[0] ?? null;
+    const bestBid = selected?.bid ?? restCandidateBid;
+    const bestAsk = selected?.ask ?? restCandidateAsk;
+    const priceSource = selected?.source ?? "rest";
     return {
       bestBid,
       bestAsk,
@@ -273,6 +308,8 @@ export class TradingEngine {
       wsBestAsk,
       restBestBid,
       restBestAsk,
+      sdkBestBid,
+      sdkBestAsk,
     };
   }
 
@@ -292,9 +329,16 @@ export class TradingEngine {
     wsBestAsk: number;
     restBestBid: number;
     restBestAsk: number;
+    sdkBestBid: number;
+    sdkBestAsk: number;
   }> {
-    this.assertTokenInConditionContext(params);
-    return this.getTopOfBook(params.tokenId);
+    const validatedTokenId = this.validateTokenId(params.tokenId);
+    this.assertTokenInConditionContext({
+      conditionId: params.conditionId,
+      tokenIds: params.tokenIds,
+      tokenId: validatedTokenId,
+    });
+    return this.getTopOfBook(validatedTokenId);
   }
 
   async hasOpenBuyOrderAtPrice(tokenId: string, price: number): Promise<boolean> {

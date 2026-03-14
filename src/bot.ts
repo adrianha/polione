@@ -1054,6 +1054,8 @@ export class PolymarketBot {
       wsBestAsk: number;
       restBestBid: number;
       restBestAsk: number;
+      sdkBestBid: number;
+      sdkBestAsk: number;
     };
     try {
       top = await this.tradingEngine.getTopOfBookForCondition({
@@ -1107,6 +1109,8 @@ export class PolymarketBot {
           wsBestAsk: top.wsBestAsk,
           restBestBid: top.restBestBid,
           restBestAsk: top.restBestAsk,
+          sdkBestBid: top.sdkBestBid,
+          sdkBestAsk: top.sdkBestAsk,
           wsQuotesMaxAgeMs: this.config.wsQuotesMaxAgeMs,
         },
         "WS quote unavailable or stale; using REST top-of-book for missing-leg recovery decision",
@@ -1273,6 +1277,8 @@ export class PolymarketBot {
         wsBestAsk: top.wsBestAsk,
         restBestBid: top.restBestBid,
         restBestAsk: top.restBestAsk,
+        sdkBestBid: top.sdkBestBid,
+        sdkBestAsk: top.sdkBestAsk,
         spread: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)),
         makerPrice,
         canCrossBestAsk,
@@ -1320,6 +1326,8 @@ export class PolymarketBot {
           { key: "wsBestAsk", value: top.wsBestAsk },
           { key: "restBestBid", value: top.restBestBid },
           { key: "restBestAsk", value: top.restBestAsk },
+          { key: "sdkBestBid", value: top.sdkBestBid },
+          { key: "sdkBestAsk", value: top.sdkBestAsk },
           { key: "rawBid1", value: rawTopBids[0] },
           { key: "rawBid2", value: rawTopBids[1] },
           { key: "rawBid3", value: rawTopBids[2] },

@@ -224,6 +224,26 @@ export class PolyClobClient {
     return this.client.getOrderBook(tokenId);
   }
 
+  async getPrice(tokenId: string, side: "BUY" | "SELL"): Promise<number> {
+    const response = await this.client.getPrice(tokenId, side);
+    if (typeof response === "number") {
+      return Number.isFinite(response) && response > 0 ? response : 0;
+    }
+
+    if (!response || typeof response !== "object") {
+      return 0;
+    }
+
+    const record = response as Record<string, unknown>;
+    const value = record.price ?? record.value ?? record.best_price ?? record.bestPrice;
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
+    }
+
+    return parsed;
+  }
+
   async cancelOpenOrdersForTokenIds(tokenIds: string[]): Promise<unknown[]> {
     const uniqueTokenIds = new Set(tokenIds);
     if (uniqueTokenIds.size === 0) {
