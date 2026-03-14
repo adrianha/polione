@@ -187,6 +187,28 @@ describe("missing-leg recovery integration", () => {
     }
   });
 
+  it("crosses to best ask when profitability cap allows immediate fill", async () => {
+    const { bot, tempDir } = await createBotHarness();
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.01, bestAsk: 0.06 }));
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4.994614 }])
+      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4.994614 }]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("up-token", 0.06, 5);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips re-order when previous placement is too recent and price delta is tiny", async () => {
     const { bot, tempDir } = await createBotHarness();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);

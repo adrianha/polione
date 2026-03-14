@@ -926,19 +926,22 @@ export class PolymarketBot {
     }
 
     const top = await this.tradingEngine.getTopOfBook(imbalance.missingLegTokenId);
-    const nextPrice = this.computeMakerMissingLegPrice({
+    const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
       bestAsk: top.bestAsk,
       maxMissingPrice,
       makerOffset: recoveryPolicy.makerOffset,
     });
 
+    const canCrossBestAsk = top.bestAsk > 0 && top.bestAsk <= maxMissingPrice;
+    const nextPrice = canCrossBestAsk ? this.roundPrice(top.bestAsk) : makerPrice;
+
     if (nextPrice <= 0) {
       return {
         status: "timeout",
         finalSummary: latestSummary,
         iterations,
-        reason: "Missing-leg maker price unavailable",
+        reason: "Missing-leg recovery price unavailable",
       };
     }
 
