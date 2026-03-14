@@ -1671,17 +1671,6 @@ export class PolymarketBot {
       }
 
       if (recovery.status === "unchanged-price") {
-        this.logger.info(
-          {
-            conditionId: currentConditionId,
-            slug: currentMarket.slug,
-            summary: recovery.finalSummary,
-            lastPlacedPrice: recovery.lastPlacedPrice,
-            reason: recovery.reason,
-            secondsToClose,
-          },
-          "Skipped recovery re-order because price is unchanged",
-        );
         return;
       }
 
