@@ -845,6 +845,30 @@ export class PolymarketBot {
     return this.roundPrice(bounded);
   }
 
+  private adjustPassiveLimitBuyPrice(params: { desiredPrice: number; bestAsk: number }): number {
+    const desiredPrice = Math.max(0, params.desiredPrice);
+    const bestAsk = Math.max(0, params.bestAsk);
+    const minDecrement = 0.0001;
+    if (desiredPrice <= 0) {
+      return 0;
+    }
+
+    if (bestAsk <= 0) {
+      return this.roundPrice(desiredPrice);
+    }
+
+    if (desiredPrice < bestAsk) {
+      return this.roundPrice(desiredPrice);
+    }
+
+    const passiveCap = this.roundPrice(Math.max(0, bestAsk - minDecrement));
+    if (passiveCap <= 0) {
+      return 0;
+    }
+
+    return this.roundPrice(Math.min(desiredPrice, passiveCap));
+  }
+
   private getTimeAwareRecoveryPolicy(secondsToClose: number | null): {
     progress: number;
     extraProfitBuffer: number;
@@ -1103,7 +1127,11 @@ export class PolymarketBot {
     const topBidAnchoredPrice = this.roundPrice(top.bestBid + recoveryPolicy.makerOffset);
     const anchoredNextPrice = this.roundPrice(Math.max(nextPrice, topBidAnchoredPrice));
     const guardTriggered = anchoredNextPrice > 0 && anchoredNextPrice < lowPriceGuardThreshold;
-    const finalPrice = guardTriggered ? fallbackPrice : anchoredNextPrice;
+    const finalPriceBeforePassiveAdjust = guardTriggered ? fallbackPrice : anchoredNextPrice;
+    const finalPrice = this.adjustPassiveLimitBuyPrice({
+      desiredPrice: finalPriceBeforePassiveAdjust,
+      bestAsk: top.bestAsk,
+    });
 
     if (finalPrice <= 0) {
       return {
@@ -1250,6 +1278,7 @@ export class PolymarketBot {
         makerPrice,
         canCrossBestAsk,
         nextPrice,
+        finalPriceBeforePassiveAdjust,
         finalPrice,
         lowPriceGuardThreshold,
         lowPriceFallbackBuffer,
@@ -1307,6 +1336,7 @@ export class PolymarketBot {
           { key: "makerPrice", value: makerPrice },
           { key: "canCrossBestAsk", value: canCrossBestAsk ? "yes" : "no" },
           { key: "nextPrice", value: nextPrice },
+          { key: "finalPriceBeforePassiveAdjust", value: finalPriceBeforePassiveAdjust },
           { key: "finalPrice", value: finalPrice },
           { key: "guardTriggered", value: guardTriggered ? "yes" : "no" },
           { key: "guardThreshold", value: lowPriceGuardThreshold },
