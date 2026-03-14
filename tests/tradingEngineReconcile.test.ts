@@ -289,4 +289,56 @@ describe("trading engine entry reconciliation", () => {
     expect(top.bestBid).toBe(0.03);
     expect(top.bestAsk).toBe(0.97);
   });
+
+  it("prefers websocket quote when available and tighter than rest", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.01" }, { price: "0.03" }, { price: "0.02" }],
+        asks: [{ price: "0.99" }, { price: "0.97" }, { price: "0.98" }],
+      }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const wsClient = {
+      getFreshQuote: (_tokenId: string) => ({ bestBid: 0.45, bestAsk: 0.46 }),
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never, wsClient as never);
+
+    const top = await engine.getTopOfBook("token-a");
+    expect(top.priceSource).toBe("ws");
+    expect(top.bestBid).toBe(0.45);
+    expect(top.bestAsk).toBe(0.46);
+    expect(top.restBestBid).toBe(0.03);
+    expect(top.restBestAsk).toBe(0.97);
+  });
+
+  it("falls back to rest quote when websocket spread is wider", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.44" }, { price: "0.43" }, { price: "0.42" }],
+        asks: [{ price: "0.47" }, { price: "0.48" }, { price: "0.49" }],
+      }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const wsClient = {
+      getFreshQuote: (_tokenId: string) => ({ bestBid: 0.03, bestAsk: 0.97 }),
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never, wsClient as never);
+
+    const top = await engine.getTopOfBook("token-a");
+    expect(top.priceSource).toBe("rest");
+    expect(top.bestBid).toBe(0.44);
+    expect(top.bestAsk).toBe(0.47);
+    expect(top.wsBestBid).toBe(0.03);
+    expect(top.wsBestAsk).toBe(0.97);
+  });
 });

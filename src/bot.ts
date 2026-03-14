@@ -1097,6 +1097,22 @@ export class PolymarketBot {
     const rawTopBids = Array.isArray(top.rawTopBids) && top.rawTopBids.length > 0 ? top.rawTopBids : topBids;
     const rawTopAsks = Array.isArray(top.rawTopAsks) && top.rawTopAsks.length > 0 ? top.rawTopAsks : topAsks;
 
+    if (top.priceSource === "rest" && this.config.enableClobWs) {
+      this.logger.info(
+        {
+          conditionId: params.conditionId,
+          slug: params.market.slug,
+          missingLegTokenId: imbalance.missingLegTokenId,
+          wsBestBid: top.wsBestBid,
+          wsBestAsk: top.wsBestAsk,
+          restBestBid: top.restBestBid,
+          restBestAsk: top.restBestAsk,
+          wsQuotesMaxAgeMs: this.config.wsQuotesMaxAgeMs,
+        },
+        "WS quote unavailable or stale; using REST top-of-book for missing-leg recovery decision",
+      );
+    }
+
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
       bestAsk: top.bestAsk,

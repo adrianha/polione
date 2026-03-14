@@ -255,9 +255,12 @@ export class TradingEngine {
     const restBestAsk = topAsks[0] ?? 0;
     const wsBestBid = wsQuote?.bestBid ?? 0;
     const wsBestAsk = wsQuote?.bestAsk ?? 0;
-    const bestBid = wsBestBid > 0 ? wsBestBid : restBestBid;
-    const bestAsk = wsBestAsk > 0 ? wsBestAsk : restBestAsk;
-    const priceSource = wsBestBid > 0 && wsBestAsk > 0 ? "ws" : "rest";
+    const wsSpread = wsBestBid > 0 && wsBestAsk > 0 ? wsBestAsk - wsBestBid : Number.POSITIVE_INFINITY;
+    const restSpread = restBestBid > 0 && restBestAsk > 0 ? restBestAsk - restBestBid : Number.POSITIVE_INFINITY;
+    const useWsQuote = wsBestBid > 0 && wsBestAsk > 0 && wsSpread > 0 && wsSpread <= restSpread;
+    const bestBid = useWsQuote ? wsBestBid : restBestBid;
+    const bestAsk = useWsQuote ? wsBestAsk : restBestAsk;
+    const priceSource = useWsQuote ? "ws" : "rest";
     return {
       bestBid,
       bestAsk,

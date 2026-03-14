@@ -179,21 +179,25 @@ export class ClobWsClient {
     }
 
     const record = event as Record<string, unknown>;
-    const eventType =
-      typeof record.event_type === "string" ? record.event_type : typeof record.type === "string" ? record.type : "";
-
-    if (eventType !== "best_bid_ask") {
-      return;
-    }
+    const payload =
+      record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : record;
 
     const assetId =
-      typeof record.asset_id === "string" ? record.asset_id : typeof record.assetId === "string" ? record.assetId : "";
+      typeof payload.asset_id === "string"
+        ? payload.asset_id
+        : typeof payload.assetId === "string"
+          ? payload.assetId
+          : typeof payload.token_id === "string"
+            ? payload.token_id
+            : typeof payload.tokenId === "string"
+              ? payload.tokenId
+              : "";
     if (!assetId) {
       return;
     }
 
-    const bestBid = parseNumber(record.best_bid ?? record.bid ?? record.price_bid);
-    const bestAsk = parseNumber(record.best_ask ?? record.ask ?? record.price_ask);
+    const bestBid = parseNumber(payload.best_bid ?? payload.bid ?? payload.price_bid ?? payload.bbo_bid ?? payload.bb);
+    const bestAsk = parseNumber(payload.best_ask ?? payload.ask ?? payload.price_ask ?? payload.bbo_ask ?? payload.ba);
     if (bestBid <= 0 || bestAsk <= 0) {
       return;
     }
