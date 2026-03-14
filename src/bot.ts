@@ -426,9 +426,9 @@ export class PolymarketBot {
   private isRelayerSkippedResult(value: unknown): value is RelayerSkippedResult {
     return Boolean(
       value &&
-        typeof value === "object" &&
-        (value as { skipped?: unknown }).skipped === true &&
-        typeof (value as { reason?: unknown }).reason === "string",
+      typeof value === "object" &&
+      (value as { skipped?: unknown }).skipped === true &&
+      typeof (value as { reason?: unknown }).reason === "string",
     );
   }
 
@@ -914,7 +914,9 @@ export class PolymarketBot {
     }
 
     const targetMinProfitPerShare = this.config.forceWindowMinProfitPerShare + recoveryPolicy.extraProfitBuffer;
-    const maxMissingPrice = this.roundPrice(1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - targetMinProfitPerShare);
+    const maxMissingPrice = this.roundPrice(
+      1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - targetMinProfitPerShare,
+    );
 
     if (maxMissingPrice <= 0) {
       return {
@@ -1019,8 +1021,20 @@ export class PolymarketBot {
       };
     }
 
-    conservativeMissingAmount = Math.max(this.config.orderSize, conservativeMissingAmount);
-    await this.tradingEngine.placeSingleLimitBuyAtPrice(imbalance.missingLegTokenId, nextPrice, conservativeMissingAmount);
+    conservativeMissingAmount = Number(Math.min(cappedMissingAmount, conservativeMissingAmount).toFixed(6));
+    if (conservativeMissingAmount <= 0) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        iterations,
+        reason: "Missing-leg conservative size resolved to zero after cap clamp",
+      };
+    }
+    await this.tradingEngine.placeSingleLimitBuyAtPrice(
+      imbalance.missingLegTokenId,
+      nextPrice,
+      conservativeMissingAmount,
+    );
 
     return {
       status: "placed",
