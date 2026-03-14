@@ -20,6 +20,7 @@ import { SettlementService } from "./services/settlement.js";
 import { RedeemPrecheckService } from "./services/redeemPrecheck.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
 import { StateStore } from "./utils/stateStore.js";
+import { setLogMarketContext } from "./utils/logger.js";
 import { sleep } from "./utils/time.js";
 
 type ConditionLifecycle = "new" | "entry-pending" | "recovery-pending" | "force-window" | "balanced" | "terminal";
@@ -2061,6 +2062,10 @@ export class PolymarketBot {
 
     this.latestCurrentMarket = currentMarket;
     this.latestNextMarket = nextMarket;
+    setLogMarketContext({
+      currentMarketSlug: currentMarket?.slug,
+      nextMarketSlug: nextMarket?.slug,
+    });
     this.snapshotUpdatedAtMs = Date.now();
 
     if (!currentMarket && !nextMarket) {
