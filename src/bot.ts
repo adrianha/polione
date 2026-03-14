@@ -1088,8 +1088,10 @@ export class PolymarketBot {
     const lowPriceGuardThreshold = 0.05;
     const lowPriceFallbackBuffer = 0.05;
     const fallbackPrice = this.roundPrice(1 - params.filledLegAvgPrice - lowPriceFallbackBuffer);
-    const guardTriggered = nextPrice > 0 && nextPrice < lowPriceGuardThreshold;
-    const finalPrice = guardTriggered ? fallbackPrice : nextPrice;
+    const topBidAnchoredPrice = this.roundPrice(top.bestBid + recoveryPolicy.makerOffset);
+    const anchoredNextPrice = this.roundPrice(Math.max(nextPrice, topBidAnchoredPrice));
+    const guardTriggered = anchoredNextPrice > 0 && anchoredNextPrice < lowPriceGuardThreshold;
+    const finalPrice = guardTriggered ? fallbackPrice : anchoredNextPrice;
 
     if (finalPrice <= 0) {
       return {
@@ -1235,6 +1237,8 @@ export class PolymarketBot {
         lowPriceGuardThreshold,
         lowPriceFallbackBuffer,
         fallbackPrice,
+        topBidAnchoredPrice,
+        anchoredNextPrice,
         guardTriggered,
         entryContinuousRepriceIntervalMs: this.config.entryContinuousRepriceIntervalMs,
         entryContinuousMinPriceDelta: this.config.entryContinuousMinPriceDelta,
@@ -1282,6 +1286,8 @@ export class PolymarketBot {
           { key: "guardThreshold", value: lowPriceGuardThreshold },
           { key: "fallbackBuffer", value: lowPriceFallbackBuffer },
           { key: "fallbackPrice", value: fallbackPrice },
+          { key: "topBidAnchoredPrice", value: topBidAnchoredPrice },
+          { key: "anchoredNextPrice", value: anchoredNextPrice },
           { key: "previousPrice", value: repriceContext?.previousPrice },
           { key: "priceDelta", value: repriceContext?.priceDelta },
           { key: "elapsedMs", value: repriceContext?.elapsedMs },
