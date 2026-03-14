@@ -86,7 +86,6 @@ const createBot = async () => {
     getConditionId: vi.fn(() => "cond-1"),
     getSecondsToMarketClose: vi.fn(() => 120),
   };
-  bot.clobWsClient = { ensureSubscribed: vi.fn(), clearQuotes: vi.fn() };
   bot.clobClient = { getUsdcBalance: vi.fn(async () => 100) };
   bot.dataClient = { getPositions: vi.fn(async () => []) };
   bot.tradingEngine = {
@@ -111,11 +110,7 @@ const createBot = async () => {
       topAsks: [0.36, 0.37, 0.38],
       rawTopBids: [0.35, 0.34, 0.33],
       rawTopAsks: [0.36, 0.37, 0.38],
-      priceSource: "rest",
-      wsBestBid: 0,
-      wsBestAsk: 0,
-      restBestBid: 0.35,
-      restBestAsk: 0.36,
+      priceSource: "sdk",
       sdkBestBid: 0.35,
       sdkBestAsk: 0.36,
     })),
@@ -604,11 +599,7 @@ describe("bot lifecycle", () => {
       topAsks: [0.351, 0.352],
       rawTopBids: [0.349, 0.348],
       rawTopAsks: [0.351, 0.352],
-      priceSource: "rest",
-      wsBestBid: 0,
-      wsBestAsk: 0,
-      restBestBid: 0.349,
-      restBestAsk: 0.351,
+      priceSource: "sdk",
       sdkBestBid: 0.349,
       sdkBestAsk: 0.351,
     }));

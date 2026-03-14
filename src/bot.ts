@@ -10,7 +10,6 @@ import type {
 } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
-import { ClobWsClient } from "./clients/clobWsClient.js";
 import { TelegramClient, escapeHtml, truncateId } from "./clients/telegramClient.js";
 import { PolyRelayerClient } from "./clients/relayerClient.js";
 import { DataClient } from "./clients/dataClient.js";
@@ -53,7 +52,6 @@ export class PolymarketBot {
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
-  private readonly clobWsClient: ClobWsClient;
   private readonly relayerClient: PolyRelayerClient;
   private readonly dataClient: DataClient;
   private readonly marketDiscovery: MarketDiscoveryService;
@@ -75,11 +73,10 @@ export class PolymarketBot {
   ) {
     this.gammaClient = new GammaClient(config);
     this.clobClient = new PolyClobClient(config);
-    this.clobWsClient = new ClobWsClient(config, logger);
     this.relayerClient = new PolyRelayerClient(config);
     this.dataClient = new DataClient(config);
     this.marketDiscovery = new MarketDiscoveryService(config, this.gammaClient);
-    this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient, this.clobWsClient);
+    this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient);
     this.settlementService = new SettlementService(this.relayerClient);
     this.redeemPrecheckService = new RedeemPrecheckService(config);
     this.telegramClient = new TelegramClient({
@@ -696,7 +693,6 @@ export class PolymarketBot {
 
   stop(): void {
     this.stopped = true;
-    this.clobWsClient.stop();
   }
 
   private getSnapshotAgeMs(): number | null {
@@ -887,8 +883,6 @@ export class PolymarketBot {
   }
 
   private noteCurrentMarketContext(conditionId: string, tokenIds: TokenIds): void {
-    this.clobWsClient.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
-
     if (this.activeCurrentConditionId === conditionId) {
       this.activeCurrentTokenIds = tokenIds;
       return;
@@ -904,7 +898,6 @@ export class PolymarketBot {
     }
 
     this.recentRecoveryPlacements.delete(previousConditionId);
-    this.clobWsClient.clearQuotes([previousTokenIds.upTokenId, previousTokenIds.downTokenId]);
     this.logger.debug(
       {
         previousConditionId,
@@ -1049,11 +1042,7 @@ export class PolymarketBot {
       topAsks: number[];
       rawTopBids: number[];
       rawTopAsks: number[];
-      priceSource: "ws" | "rest";
-      wsBestBid: number;
-      wsBestAsk: number;
-      restBestBid: number;
-      restBestAsk: number;
+      priceSource: "sdk";
       sdkBestBid: number;
       sdkBestAsk: number;
     };
@@ -1098,24 +1087,6 @@ export class PolymarketBot {
     const topAsks = Array.isArray(top.topAsks) && top.topAsks.length > 0 ? top.topAsks : [top.bestAsk];
     const rawTopBids = Array.isArray(top.rawTopBids) && top.rawTopBids.length > 0 ? top.rawTopBids : topBids;
     const rawTopAsks = Array.isArray(top.rawTopAsks) && top.rawTopAsks.length > 0 ? top.rawTopAsks : topAsks;
-
-    if (top.priceSource === "rest" && this.config.enableClobWs) {
-      this.logger.info(
-        {
-          conditionId: params.conditionId,
-          slug: params.market.slug,
-          missingLegTokenId: imbalance.missingLegTokenId,
-          wsBestBid: top.wsBestBid,
-          wsBestAsk: top.wsBestAsk,
-          restBestBid: top.restBestBid,
-          restBestAsk: top.restBestAsk,
-          sdkBestBid: top.sdkBestBid,
-          sdkBestAsk: top.sdkBestAsk,
-          wsQuotesMaxAgeMs: this.config.wsQuotesMaxAgeMs,
-        },
-        "WS quote unavailable or stale; using REST top-of-book for missing-leg recovery decision",
-      );
-    }
 
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
@@ -1273,10 +1244,6 @@ export class PolymarketBot {
         rawTopBids,
         rawTopAsks,
         priceSource: top.priceSource,
-        wsBestBid: top.wsBestBid,
-        wsBestAsk: top.wsBestAsk,
-        restBestBid: top.restBestBid,
-        restBestAsk: top.restBestAsk,
         sdkBestBid: top.sdkBestBid,
         sdkBestAsk: top.sdkBestAsk,
         spread: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)),
@@ -1322,10 +1289,6 @@ export class PolymarketBot {
           { key: "bestBid", value: top.bestBid },
           { key: "bestAsk", value: top.bestAsk },
           { key: "priceSource", value: top.priceSource },
-          { key: "wsBestBid", value: top.wsBestBid },
-          { key: "wsBestAsk", value: top.wsBestAsk },
-          { key: "restBestBid", value: top.restBestBid },
-          { key: "restBestAsk", value: top.restBestAsk },
           { key: "sdkBestBid", value: top.sdkBestBid },
           { key: "sdkBestAsk", value: top.sdkBestAsk },
           { key: "rawBid1", value: rawTopBids[0] },
@@ -2553,7 +2516,6 @@ export class PolymarketBot {
 
   async runForever(): Promise<void> {
     await this.clobClient.init();
-    this.clobWsClient.start();
     const userAddress = this.clobClient.getSignerAddress();
     const positionsAddress = this.config.funder ?? userAddress;
 

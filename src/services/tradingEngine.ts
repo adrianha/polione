@@ -1,7 +1,6 @@
 import type { DataClient } from "../clients/dataClient.js";
 import type { BotConfig, EntryReconcileResult, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
-import type { ClobWsClient } from "../clients/clobWsClient.js";
 import { OrderType, type OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
@@ -23,7 +22,6 @@ export class TradingEngine {
     private readonly config: BotConfig,
     private readonly clobClient: PolyClobClient,
     private readonly dataClient: DataClient,
-    private readonly clobWsClient?: ClobWsClient,
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
@@ -243,59 +241,23 @@ export class TradingEngine {
     topAsks: number[];
     rawTopBids: number[];
     rawTopAsks: number[];
-    priceSource: "ws" | "rest";
-    wsBestBid: number;
-    wsBestAsk: number;
-    restBestBid: number;
-    restBestAsk: number;
+    priceSource: "sdk";
     sdkBestBid: number;
     sdkBestAsk: number;
   }> {
     const validatedTokenId = this.validateTokenId(tokenId);
-    const wsQuote = this.clobWsClient?.getFreshQuote(validatedTokenId) ?? null;
-    const book = await this.clobClient.getOrderBook(validatedTokenId);
     const [sdkBestBidRaw, sdkBestAskRaw] = await Promise.all([
       this.clobClient.getPrice(validatedTokenId, "BUY").catch(() => 0),
       this.clobClient.getPrice(validatedTokenId, "SELL").catch(() => 0),
     ]);
-    const rawTopBids = (book.bids ?? [])
-      .map((level) => this.parsePositive(level?.price))
-      .filter((price) => price > 0)
-      .slice(0, 3);
-    const rawTopAsks = (book.asks ?? [])
-      .map((level) => this.parsePositive(level?.price))
-      .filter((price) => price > 0)
-      .slice(0, 3);
-    const topBids = [...rawTopBids].sort((a, b) => b - a);
-    const topAsks = [...rawTopAsks].sort((a, b) => a - b);
-    const restBestBid = topBids[0] ?? 0;
-    const restBestAsk = topAsks[0] ?? 0;
-    const wsBestBid = wsQuote?.bestBid ?? 0;
-    const wsBestAsk = wsQuote?.bestAsk ?? 0;
     const sdkBestBid = this.parsePositive(sdkBestBidRaw);
     const sdkBestAsk = this.parsePositive(sdkBestAskRaw);
-
-    const candidates: Array<{ source: "ws" | "rest"; bid: number; ask: number; spread: number }> = [];
-
-    if (wsBestBid > 0 && wsBestAsk > 0 && wsBestAsk > wsBestBid) {
-      candidates.push({ source: "ws", bid: wsBestBid, ask: wsBestAsk, spread: wsBestAsk - wsBestBid });
-    }
-
-    const restCandidateBid = sdkBestBid > 0 ? sdkBestBid : restBestBid;
-    const restCandidateAsk = sdkBestAsk > 0 ? sdkBestAsk : restBestAsk;
-    if (restCandidateBid > 0 && restCandidateAsk > 0 && restCandidateAsk > restCandidateBid) {
-      candidates.push({
-        source: "rest",
-        bid: restCandidateBid,
-        ask: restCandidateAsk,
-        spread: restCandidateAsk - restCandidateBid,
-      });
-    }
-
-    const selected = candidates.sort((a, b) => a.spread - b.spread)[0] ?? null;
-    const bestBid = selected?.bid ?? restCandidateBid;
-    const bestAsk = selected?.ask ?? restCandidateAsk;
-    const priceSource = selected?.source ?? "rest";
+    const bestBid = sdkBestBid;
+    const bestAsk = sdkBestAsk;
+    const topBids = sdkBestBid > 0 ? [sdkBestBid] : [];
+    const topAsks = sdkBestAsk > 0 ? [sdkBestAsk] : [];
+    const rawTopBids = [...topBids];
+    const rawTopAsks = [...topAsks];
     return {
       bestBid,
       bestAsk,
@@ -303,11 +265,7 @@ export class TradingEngine {
       topAsks,
       rawTopBids,
       rawTopAsks,
-      priceSource,
-      wsBestBid,
-      wsBestAsk,
-      restBestBid,
-      restBestAsk,
+      priceSource: "sdk",
       sdkBestBid,
       sdkBestAsk,
     };
@@ -324,11 +282,7 @@ export class TradingEngine {
     topAsks: number[];
     rawTopBids: number[];
     rawTopAsks: number[];
-    priceSource: "ws" | "rest";
-    wsBestBid: number;
-    wsBestAsk: number;
-    restBestBid: number;
-    restBestAsk: number;
+    priceSource: "sdk";
     sdkBestBid: number;
     sdkBestAsk: number;
   }> {

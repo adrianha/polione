@@ -268,13 +268,13 @@ describe("trading engine entry reconciliation", () => {
     ).rejects.toBeInstanceOf(MarketTokenMismatchError);
   });
 
-  it("normalizes unsorted orderbook levels for top-of-book", async () => {
+  it("uses SDK prices as top-of-book and exposes normalized ladders", async () => {
     const clobClient = {
       getOrderBook: async (_tokenId: string) => ({
         bids: [{ price: "0.01" }, { price: "0.03" }, { price: "0.02" }],
         asks: [{ price: "0.99" }, { price: "0.97" }, { price: "0.98" }],
       }),
-      getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
+      getPrice: async (_tokenId: string, side: "BUY" | "SELL") => (side === "BUY" ? 0.57 : 0.58),
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
       placeLimitOrdersBatch: async (_params: unknown) => [],
@@ -285,44 +285,16 @@ describe("trading engine entry reconciliation", () => {
     const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
     const top = await engine.getTopOfBook("token-a");
-    expect(top.rawTopBids).toEqual([0.01, 0.03, 0.02]);
-    expect(top.rawTopAsks).toEqual([0.99, 0.97, 0.98]);
-    expect(top.topBids).toEqual([0.03, 0.02, 0.01]);
-    expect(top.topAsks).toEqual([0.97, 0.98, 0.99]);
-    expect(top.bestBid).toBe(0.03);
-    expect(top.bestAsk).toBe(0.97);
+    expect(top.rawTopBids).toEqual([0.57]);
+    expect(top.rawTopAsks).toEqual([0.58]);
+    expect(top.topBids).toEqual([0.57]);
+    expect(top.topAsks).toEqual([0.58]);
+    expect(top.bestBid).toBe(0.57);
+    expect(top.bestAsk).toBe(0.58);
+    expect(top.priceSource).toBe("sdk");
   });
 
-  it("prefers websocket quote when available and tighter than rest", async () => {
-    const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({
-        bids: [{ price: "0.01" }, { price: "0.03" }, { price: "0.02" }],
-        asks: [{ price: "0.99" }, { price: "0.97" }, { price: "0.98" }],
-      }),
-      getPrice: async (_tokenId: string, side: "BUY" | "SELL") => (side === "BUY" ? 0.45 : 0.46),
-      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
-      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
-      placeLimitOrdersBatch: async (_params: unknown) => [],
-    };
-    const dataClient = {
-      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
-    };
-    const wsClient = {
-      getFreshQuote: (_tokenId: string) => ({ bestBid: 0.45, bestAsk: 0.46 }),
-    };
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never, wsClient as never);
-
-    const top = await engine.getTopOfBook("token-a");
-    expect(top.priceSource).toBe("ws");
-    expect(top.bestBid).toBe(0.45);
-    expect(top.bestAsk).toBe(0.46);
-    expect(top.sdkBestBid).toBe(0.45);
-    expect(top.sdkBestAsk).toBe(0.46);
-    expect(top.restBestBid).toBe(0.03);
-    expect(top.restBestAsk).toBe(0.97);
-  });
-
-  it("falls back to rest quote when websocket spread is wider", async () => {
+  it("returns sdk best bid and ask in diagnostics", async () => {
     const clobClient = {
       getOrderBook: async (_tokenId: string) => ({
         bids: [{ price: "0.44" }, { price: "0.43" }, { price: "0.42" }],
@@ -336,17 +308,12 @@ describe("trading engine entry reconciliation", () => {
     const dataClient = {
       getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
     };
-    const wsClient = {
-      getFreshQuote: (_tokenId: string) => ({ bestBid: 0.03, bestAsk: 0.97 }),
-    };
-    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never, wsClient as never);
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
 
     const top = await engine.getTopOfBook("token-a");
-    expect(top.priceSource).toBe("rest");
+    expect(top.priceSource).toBe("sdk");
     expect(top.bestBid).toBe(0.44);
     expect(top.bestAsk).toBe(0.47);
-    expect(top.wsBestBid).toBe(0.03);
-    expect(top.wsBestAsk).toBe(0.97);
     expect(top.sdkBestBid).toBe(0.44);
     expect(top.sdkBestAsk).toBe(0.47);
   });
