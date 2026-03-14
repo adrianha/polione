@@ -1229,6 +1229,48 @@ export class PolymarketBot {
       },
       "Missing-leg recovery placement decision context",
     );
+    void this
+      .notify({
+        title: "Missing-leg recovery placement decision",
+        severity: "info",
+        dedupeKey: `missing-leg-recovery-placement:${params.conditionId}:${imbalance.missingLegTokenId}:${nextPrice}`,
+        slug: params.market.slug,
+        conditionId: params.conditionId,
+        upTokenId: params.tokenIds.upTokenId,
+        downTokenId: params.tokenIds.downTokenId,
+        details: [
+          { key: "missingLegTokenId", value: imbalance.missingLegTokenId },
+          { key: "secondsToClose", value: secondsToClose },
+          { key: "missingAmount", value: imbalance.missingAmount },
+          { key: "effectiveMissingAmount", value: effectiveMissingAmount },
+          { key: "remainingForMissingLeg", value: remainingForMissingLeg },
+          { key: "cappedMissingAmount", value: cappedMissingAmount },
+          { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
+          { key: "targetMinProfitPerShare", value: targetMinProfitPerShare },
+          { key: "expectedLockPnlPerShare", value: expectedLockPnlPerShare },
+          { key: "maxMissingPrice", value: maxMissingPrice },
+          { key: "bestBid", value: top.bestBid },
+          { key: "bestAsk", value: top.bestAsk },
+          { key: "makerPrice", value: makerPrice },
+          { key: "canCrossBestAsk", value: canCrossBestAsk ? "yes" : "no" },
+          { key: "nextPrice", value: nextPrice },
+          { key: "previousPrice", value: repriceContext?.previousPrice },
+          { key: "priceDelta", value: repriceContext?.priceDelta },
+          { key: "elapsedMs", value: repriceContext?.elapsedMs },
+          { key: "orderPrice", value: nextPrice },
+          { key: "orderSize", value: cappedMissingAmount },
+        ],
+      })
+      .catch((error) => {
+        this.logger.warn(
+          {
+            conditionId: params.conditionId,
+            slug: params.market.slug,
+            error,
+          },
+          "Failed to send missing-leg recovery placement decision telegram notification",
+        );
+      });
 
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
