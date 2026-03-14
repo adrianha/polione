@@ -1,6 +1,7 @@
 import type { DataClient } from "../clients/dataClient.js";
 import type { BotConfig, EntryReconcileResult, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
+import type { ClobWsClient } from "../clients/clobWsClient.js";
 import { OrderType, type OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
@@ -22,6 +23,7 @@ export class TradingEngine {
     private readonly config: BotConfig,
     private readonly clobClient: PolyClobClient,
     private readonly dataClient: DataClient,
+    private readonly clobWsClient?: ClobWsClient,
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
@@ -231,7 +233,13 @@ export class TradingEngine {
     topAsks: number[];
     rawTopBids: number[];
     rawTopAsks: number[];
+    priceSource: "ws" | "rest";
+    wsBestBid: number;
+    wsBestAsk: number;
+    restBestBid: number;
+    restBestAsk: number;
   }> {
+    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
     const book = await this.clobClient.getOrderBook(tokenId);
     const rawTopBids = (book.bids ?? [])
       .map((level) => this.parsePositive(level?.price))
@@ -243,8 +251,13 @@ export class TradingEngine {
       .slice(0, 3);
     const topBids = [...rawTopBids].sort((a, b) => b - a);
     const topAsks = [...rawTopAsks].sort((a, b) => a - b);
-    const bestBid = topBids[0] ?? 0;
-    const bestAsk = topAsks[0] ?? 0;
+    const restBestBid = topBids[0] ?? 0;
+    const restBestAsk = topAsks[0] ?? 0;
+    const wsBestBid = wsQuote?.bestBid ?? 0;
+    const wsBestAsk = wsQuote?.bestAsk ?? 0;
+    const bestBid = wsBestBid > 0 ? wsBestBid : restBestBid;
+    const bestAsk = wsBestAsk > 0 ? wsBestAsk : restBestAsk;
+    const priceSource = wsBestBid > 0 && wsBestAsk > 0 ? "ws" : "rest";
     return {
       bestBid,
       bestAsk,
@@ -252,6 +265,11 @@ export class TradingEngine {
       topAsks,
       rawTopBids,
       rawTopAsks,
+      priceSource,
+      wsBestBid,
+      wsBestAsk,
+      restBestBid,
+      restBestAsk,
     };
   }
 
@@ -266,6 +284,11 @@ export class TradingEngine {
     topAsks: number[];
     rawTopBids: number[];
     rawTopAsks: number[];
+    priceSource: "ws" | "rest";
+    wsBestBid: number;
+    wsBestAsk: number;
+    restBestBid: number;
+    restBestAsk: number;
   }> {
     this.assertTokenInConditionContext(params);
     return this.getTopOfBook(params.tokenId);
