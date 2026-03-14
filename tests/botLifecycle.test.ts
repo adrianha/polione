@@ -485,6 +485,17 @@ describe("bot lifecycle", () => {
 
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conditionId: "cond-1",
+          slug: market.slug,
+          missingLegTokenId: "down-token",
+          action: "placeSingleLimitBuyAtPrice",
+          orderPrice: expect.any(Number),
+          orderSize: 5,
+        }),
+        "Missing-leg recovery placement decision context",
+      );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

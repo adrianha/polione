@@ -1092,9 +1092,22 @@ export class PolymarketBot {
       };
     }
 
+    let repriceContext:
+      | {
+          previousPrice: number;
+          elapsedMs: number;
+          priceDelta: number;
+        }
+      | undefined;
+
     if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
       const elapsedMs = Date.now() - params.previousPlacement.placedAtMs;
       const priceDelta = Math.abs(nextPrice - params.previousPlacement.price);
+      repriceContext = {
+        previousPrice: params.previousPlacement.price,
+        elapsedMs,
+        priceDelta,
+      };
       if (
         elapsedMs < this.config.entryContinuousRepriceIntervalMs &&
         priceDelta < this.config.entryContinuousMinPriceDelta
@@ -1183,6 +1196,39 @@ export class PolymarketBot {
         reason: "Missing-leg recovery order size below minimum order size after cap clamp",
       };
     }
+
+    this.logger.info(
+      {
+        conditionId: params.conditionId,
+        slug: params.market.slug,
+        missingLegTokenId: imbalance.missingLegTokenId,
+        secondsToClose,
+        summary: latestSummary,
+        missingAmount: imbalance.missingAmount,
+        effectiveMissingAmount,
+        remainingForMissingLeg,
+        cappedMissingAmount,
+        recoveryPolicy,
+        filledLegAvgPrice: params.filledLegAvgPrice,
+        forceWindowFeeBuffer: this.config.forceWindowFeeBuffer,
+        forceWindowMinProfitPerShare: this.config.forceWindowMinProfitPerShare,
+        targetMinProfitPerShare,
+        expectedLockPnlPerShare,
+        maxMissingPrice,
+        bestBid: top.bestBid,
+        bestAsk: top.bestAsk,
+        makerPrice,
+        canCrossBestAsk,
+        nextPrice,
+        entryContinuousRepriceIntervalMs: this.config.entryContinuousRepriceIntervalMs,
+        entryContinuousMinPriceDelta: this.config.entryContinuousMinPriceDelta,
+        repriceContext,
+        action: "placeSingleLimitBuyAtPrice",
+        orderPrice: nextPrice,
+        orderSize: cappedMissingAmount,
+      },
+      "Missing-leg recovery placement decision context",
+    );
 
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
