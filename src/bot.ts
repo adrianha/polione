@@ -25,7 +25,6 @@ import { sleep } from "./utils/time.js";
 type ConditionLifecycle = "new" | "entry-pending" | "recovery-pending" | "force-window" | "balanced" | "terminal";
 
 export class PolymarketBot {
-  private static readonly RECOVERY_REARM_COOLDOWN_MS = 15_000;
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
 
   private stopped = false;
@@ -42,6 +41,8 @@ export class PolymarketBot {
       summary: PositionSummary;
       missingLegTokenId: string;
       price: number;
+      placedSize: number;
+      orderId: string | null;
     }
   >();
   private readonly inFlightConditions = new Set<string>();
@@ -840,12 +841,17 @@ export class PolymarketBot {
       placedAtMs: number;
       price: number;
       missingLegTokenId: string;
+      summary: PositionSummary;
+      placedSize: number;
+      orderId: string | null;
     };
   }): Promise<{
     status: "balanced" | "placed" | "unchanged-price" | "timeout" | "force-window" | "not-applicable";
     finalSummary: PositionSummary;
     lastPlacedPrice?: number;
     missingLegTokenId?: string;
+    placedSize?: number;
+    orderId?: string | null;
     iterations: number;
     reason?: string;
   }> {
@@ -913,6 +919,31 @@ export class PolymarketBot {
         iterations,
         reason: "Imbalance no longer present",
       };
+    }
+
+    let effectiveMissingAmount = imbalance.missingAmount;
+    if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
+      const openBuyCoverage = await this.tradingEngine.getOpenBuyExposure(imbalance.missingLegTokenId);
+      const snapshotLikelyLagging = !this.didSummaryChange(params.previousPlacement.summary, latestSummary);
+
+      let matchedButNotReflected = 0;
+      if (snapshotLikelyLagging && params.previousPlacement.orderId) {
+        const fillState = await this.tradingEngine.getOrderFillState(params.previousPlacement.orderId);
+        matchedButNotReflected = fillState?.matchedSize ?? 0;
+      }
+
+      const pendingCoverage = openBuyCoverage + matchedButNotReflected;
+      effectiveMissingAmount = Number(Math.max(0, imbalance.missingAmount - pendingCoverage).toFixed(6));
+      if (effectiveMissingAmount <= 1e-6) {
+        return {
+          status: "unchanged-price",
+          finalSummary: latestSummary,
+          iterations,
+          lastPlacedPrice: params.previousPlacement.price,
+          missingLegTokenId: imbalance.missingLegTokenId,
+          reason: "Skipped re-order because pending recovery coverage already satisfies missing amount",
+        };
+      }
     }
 
     const targetMinProfitPerShare = this.config.forceWindowMinProfitPerShare + recoveryPolicy.extraProfitBuffer;
@@ -1011,7 +1042,15 @@ export class PolymarketBot {
       params.tokenIds,
       buyCapacity,
     );
-    const cappedMissingAmount = Number(Math.min(imbalance.missingAmount, remainingForMissingLeg).toFixed(6));
+    if (remainingForMissingLeg <= this.config.positionEqualityTolerance) {
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        iterations,
+        reason: "Strict cap reached on missing leg; no further buys allowed",
+      };
+    }
+    const cappedMissingAmount = Number(Math.min(effectiveMissingAmount, remainingForMissingLeg).toFixed(6));
     let conservativeMissingAmount = Number((cappedMissingAmount * recoveryPolicy.sizeFraction).toFixed(6));
 
     if (conservativeMissingAmount <= 0) {
@@ -1032,11 +1071,12 @@ export class PolymarketBot {
         reason: "Missing-leg conservative size resolved to zero after cap clamp",
       };
     }
-    await this.tradingEngine.placeSingleLimitBuyAtPrice(
+    const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
       nextPrice,
       conservativeMissingAmount,
     );
+    const orderId = this.tradingEngine.extractOrderId(orderResult);
 
     return {
       status: "placed",
@@ -1044,9 +1084,11 @@ export class PolymarketBot {
       iterations,
       lastPlacedPrice: nextPrice,
       missingLegTokenId: imbalance.missingLegTokenId,
+      placedSize: conservativeMissingAmount,
+      orderId,
       reason:
-        conservativeMissingAmount < Number(imbalance.missingAmount.toFixed(6))
-          ? `Placed conservative missing-leg recovery order for this cycle (${conservativeMissingAmount}/${Number(imbalance.missingAmount.toFixed(6))})`
+        conservativeMissingAmount < Number(effectiveMissingAmount.toFixed(6))
+          ? `Placed conservative missing-leg recovery order for this cycle (${conservativeMissingAmount}/${Number(effectiveMissingAmount.toFixed(6))})`
           : "Placed one missing-leg recovery order for this cycle",
     };
   }
@@ -1062,7 +1104,10 @@ export class PolymarketBot {
   }): Promise<{ status: "balanced" | "imbalanced" | "failed" }> {
     const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } = params;
     const buyCapacity = this.getConditionBuyCapacity(summary);
-    if (buyCapacity.reachedCap) {
+    const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
+    const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(missingLegTokenId, tokenIds, buyCapacity);
+
+    if (remainingForMissingLeg <= this.config.positionEqualityTolerance) {
       const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
       this.logger.warn(
         {
@@ -1070,9 +1115,10 @@ export class PolymarketBot {
           cancelledOpenOrders,
           summary,
           orderSizeCap: this.config.orderSize,
+          missingLegTokenId,
           secondsToClose,
         },
-        "Inside force-sell window: strict cap reached, cancelled open orders and left residual imbalance",
+        "Inside force-sell window: missing leg reached strict cap, cancelled open orders and left residual imbalance",
       );
       await this.notify({
         title: "Force-window hedge skipped (strict cap reached)",
@@ -1092,8 +1138,6 @@ export class PolymarketBot {
       });
       return { status: "imbalanced" };
     }
-
-    const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
     const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
 
     if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
@@ -1450,6 +1494,9 @@ export class PolymarketBot {
               placedAtMs: placementLock.placedAtMs,
               price: placementLock.price,
               missingLegTokenId: placementLock.missingLegTokenId,
+              summary: placementLock.summary,
+              placedSize: placementLock.placedSize,
+              orderId: placementLock.orderId,
             }
           : undefined,
       });
@@ -1527,6 +1574,8 @@ export class PolymarketBot {
             summary: recovery.finalSummary,
             missingLegTokenId: recovery.missingLegTokenId,
             price: recovery.lastPlacedPrice,
+            placedSize: recovery.placedSize ?? 0,
+            orderId: recovery.orderId ?? null,
           });
         }
         this.logger.info(
@@ -1552,7 +1601,6 @@ export class PolymarketBot {
             summary: recovery.finalSummary,
             lastPlacedPrice: recovery.lastPlacedPrice,
             reason: recovery.reason,
-            cooldownMs: PolymarketBot.RECOVERY_REARM_COOLDOWN_MS,
             secondsToClose,
           },
           "Skipped recovery re-order because price is unchanged",

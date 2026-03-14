@@ -106,6 +106,9 @@ const createBot = async () => {
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
     hasOpenBuyOrderAtPrice: vi.fn(async () => false),
+    getOpenBuyExposure: vi.fn(async () => 0),
+    getOrderFillState: vi.fn(async () => null),
+    extractOrderId: vi.fn(() => null),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
   };
@@ -113,6 +116,9 @@ const createBot = async () => {
   bot.settlementService = {
     mergeEqualPositions: vi.fn(async () => ({ ok: true })),
     redeemResolvedPositions: vi.fn(async () => ({ ok: true, meta: { builderLabel: "builder1" } })),
+  };
+  bot.redeemPrecheckService = {
+    check: vi.fn(async () => ({ status: "ok" })),
   };
   bot.notify = vi.fn(async () => undefined);
   bot.notifyPlacementSuccessOnce = vi.fn(async () => undefined);
@@ -462,7 +468,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("does not place missing-leg recovery buy when one leg is at strict cap", async () => {
+  it("allows missing-leg recovery when only the filled leg is at strict cap", async () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
@@ -474,14 +480,14 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("skips force-window hedge buy when strict cap is already reached", async () => {
+  it("allows force-window hedge buy when only the filled leg is at strict cap", async () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "down-token", conditionId: "cond-1", size: 5 }]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
@@ -493,8 +499,8 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.completeMissingLegForHedge).not.toHaveBeenCalled();
-      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.completeMissingLegForHedge).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(2);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -570,6 +576,8 @@ describe("bot lifecycle", () => {
       summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
       missingLegTokenId: "down-token",
       price: 0.35,
+      placedSize: 1,
+      orderId: null,
     });
 
     try {

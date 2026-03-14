@@ -107,6 +107,9 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
     hasOpenBuyOrderAtPrice: vi.fn(async () => false),
+    getOpenBuyExposure: vi.fn(async () => 0),
+    getOrderFillState: vi.fn(async () => null),
+    extractOrderId: vi.fn(() => null),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
   };
@@ -194,8 +197,8 @@ describe("missing-leg recovery integration", () => {
     bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.01, bestAsk: 0.06 }));
     bot.dataClient.getPositions = vi
       .fn()
-      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4.994614 }])
-      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4.994614 }]);
+      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4 }])
+      .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4 }]);
 
     try {
       await bot.processTrackedCurrentMarket({
@@ -204,7 +207,7 @@ describe("missing-leg recovery integration", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("up-token", 0.06, 5);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("up-token", 0.06, 1.4);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -225,6 +228,8 @@ describe("missing-leg recovery integration", () => {
       summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
       missingLegTokenId: "down-token",
       price: 0.35,
+      placedSize: 1,
+      orderId: null,
     });
 
     try {
@@ -257,6 +262,8 @@ describe("missing-leg recovery integration", () => {
       summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
       missingLegTokenId: "down-token",
       price: 0.35,
+      placedSize: 1,
+      orderId: null,
     });
 
     try {
@@ -292,6 +299,70 @@ describe("missing-leg recovery integration", () => {
 
       expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips reorder when pending open buy exposure already covers missing leg", async () => {
+    const { bot, tempDir } = await createBotHarness();
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.tradingEngine.getOpenBuyExposure = vi.fn(async () => 4);
+
+    bot.recentRecoveryPlacements.set("cond-1", {
+      placedAtMs: Date.now(),
+      summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
+      missingLegTokenId: "down-token",
+      price: 0.35,
+      placedSize: 4,
+      orderId: "order-1",
+    });
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("places only residual after subtracting pending open recovery exposure", async () => {
+    const { bot, tempDir } = await createBotHarness();
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.tradingEngine.getOpenBuyExposure = vi.fn(async () => 3);
+
+    bot.recentRecoveryPlacements.set("cond-1", {
+      placedAtMs: Date.now(),
+      summary: { upSize: 4, downSize: 0, differenceAbs: 4 },
+      missingLegTokenId: "down-token",
+      price: 0.35,
+      placedSize: 3,
+      orderId: "order-1",
+    });
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 0.35);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

@@ -258,6 +258,87 @@ export class TradingEngine {
     });
   }
 
+  async getOpenBuyExposure(tokenId: string): Promise<number> {
+    const openOrders = await this.clobClient.getOpenOrders();
+    const records = Array.isArray(openOrders) ? openOrders : [];
+
+    const total = records.reduce((sum, record) => {
+      const tokenIdValue =
+        (record as { tokenID?: unknown }).tokenID ??
+        (record as { tokenId?: unknown }).tokenId ??
+        (record as { asset_id?: unknown }).asset_id ??
+        (record as { assetId?: unknown }).assetId;
+      if (tokenIdValue !== tokenId) {
+        return sum;
+      }
+
+      const sideValue =
+        (record as { side?: unknown }).side ??
+        (record as { orderSide?: unknown }).orderSide ??
+        (record as { order_side?: unknown }).order_side;
+      const side = typeof sideValue === "string" ? sideValue.toUpperCase() : "";
+      if (side !== "BUY") {
+        return sum;
+      }
+
+      const size = this.parsePositive(
+        (record as { remainingSize?: unknown }).remainingSize ??
+          (record as { size_remaining?: unknown }).size_remaining ??
+          (record as { unfilled_size?: unknown }).unfilled_size ??
+          (record as { size?: unknown }).size,
+      );
+      const matched = this.parsePositive(
+        (record as { sizeMatched?: unknown }).sizeMatched ??
+          (record as { size_matched?: unknown }).size_matched ??
+          (record as { filledSize?: unknown }).filledSize,
+      );
+
+      const remaining = size > 0 ? Math.max(0, size - matched) : 0;
+      const contribution = remaining > 0 ? remaining : size;
+      return sum + contribution;
+    }, 0);
+
+    return Number(total.toFixed(6));
+  }
+
+  async getOrderFillState(orderId: string): Promise<{
+    matchedSize: number;
+    remainingSize: number;
+    isOpen: boolean;
+    status: string | null;
+  } | null> {
+    let orderPayload: unknown;
+    try {
+      orderPayload = await this.clobClient.getOrder(orderId);
+    } catch {
+      return null;
+    }
+
+    if (!orderPayload || typeof orderPayload !== "object") {
+      return null;
+    }
+
+    const orderRecord = orderPayload as Record<string, unknown>;
+    const size = this.parsePositive(
+      orderRecord.size ?? orderRecord.original_size ?? orderRecord.initial_size ?? orderRecord.amount,
+    );
+    const matchedSize = this.parsePositive(
+      orderRecord.size_matched ?? orderRecord.sizeMatched ?? orderRecord.filled_size ?? orderRecord.filledSize,
+    );
+    const statusRaw = orderRecord.status;
+    const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : null;
+    const explicitlyOpen = status === "live" || status === "open" || status === "pending";
+    const remainingSize = Math.max(0, Number((size - matchedSize).toFixed(6)));
+    const isOpen = explicitlyOpen || remainingSize > 0;
+
+    return {
+      matchedSize: Number(matchedSize.toFixed(6)),
+      remainingSize,
+      isOpen,
+      status,
+    };
+  }
+
   async cancelEntryOpenOrders(tokenIds: TokenIds): Promise<unknown[]> {
     return this.clobClient.cancelOpenOrdersForTokenIds([tokenIds.upTokenId, tokenIds.downTokenId]);
   }
