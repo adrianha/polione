@@ -743,10 +743,12 @@ export class PolymarketBot {
     const cap = Math.max(0, this.config.orderSize);
     const upSize = Math.max(0, summary.upSize);
     const downSize = Math.max(0, summary.downSize);
+    const reachedCap =
+      cap - upSize <= this.config.positionEqualityTolerance && cap - downSize <= this.config.positionEqualityTolerance;
 
     return {
       hasAnyExposure: upSize > 0 || downSize > 0,
-      reachedCap: upSize >= cap && downSize >= cap,
+      reachedCap,
       remainingUp: Number(Math.max(0, cap - upSize).toFixed(6)),
       remainingDown: Number(Math.max(0, cap - downSize).toFixed(6)),
     };
