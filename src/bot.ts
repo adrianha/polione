@@ -10,7 +10,6 @@ import type {
 } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
-import { ClobWsClient } from "./clients/clobWsClient.js";
 import { TelegramClient, escapeHtml, truncateId } from "./clients/telegramClient.js";
 import { PolyRelayerClient } from "./clients/relayerClient.js";
 import { DataClient } from "./clients/dataClient.js";
@@ -54,7 +53,6 @@ export class PolymarketBot {
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
   private readonly relayerClient: PolyRelayerClient;
-  private readonly clobWsClient: ClobWsClient;
   private readonly dataClient: DataClient;
   private readonly marketDiscovery: MarketDiscoveryService;
   private readonly tradingEngine: TradingEngine;
@@ -75,11 +73,10 @@ export class PolymarketBot {
   ) {
     this.gammaClient = new GammaClient(config);
     this.clobClient = new PolyClobClient(config);
-    this.clobWsClient = new ClobWsClient(config, logger);
     this.relayerClient = new PolyRelayerClient(config);
     this.dataClient = new DataClient(config);
     this.marketDiscovery = new MarketDiscoveryService(config, this.gammaClient);
-    this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient, this.clobWsClient);
+    this.tradingEngine = new TradingEngine(config, this.clobClient, this.dataClient);
     this.settlementService = new SettlementService(this.relayerClient);
     this.redeemPrecheckService = new RedeemPrecheckService(config);
     this.telegramClient = new TelegramClient({
@@ -696,7 +693,6 @@ export class PolymarketBot {
 
   stop(): void {
     this.stopped = true;
-    this.clobWsClient.stop();
   }
 
   private getSnapshotAgeMs(): number | null {
@@ -902,7 +898,6 @@ export class PolymarketBot {
     }
 
     this.recentRecoveryPlacements.delete(previousConditionId);
-    this.clobWsClient.clearQuotes([previousTokenIds.upTokenId, previousTokenIds.downTokenId]);
     this.logger.debug(
       {
         previousConditionId,
@@ -1841,8 +1836,6 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    this.clobWsClient.ensureSubscribed([entryTokenIds.upTokenId, entryTokenIds.downTokenId]);
-
     const entryConditionId = this.marketDiscovery.getConditionId(entryMarket);
     if (!entryConditionId) {
       this.logger.warn({ slug: entryMarket.slug }, "Entry market missing condition ID");
@@ -2375,7 +2368,6 @@ export class PolymarketBot {
 
   async runForever(): Promise<void> {
     await this.clobClient.init();
-    this.clobWsClient.start();
     const userAddress = this.clobClient.getSignerAddress();
     const positionsAddress = this.config.funder ?? userAddress;
 

@@ -1,7 +1,6 @@
 import type { DataClient } from "../clients/dataClient.js";
 import type { BotConfig, EntryReconcileResult, TokenIds } from "../types/domain.js";
 import type { PolyClobClient } from "../clients/clobClient.js";
-import type { ClobWsClient } from "../clients/clobWsClient.js";
 import { OrderType, type OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
@@ -23,7 +22,6 @@ export class TradingEngine {
     private readonly config: BotConfig,
     private readonly clobClient: PolyClobClient,
     private readonly dataClient: DataClient,
-    private readonly clobWsClient?: ClobWsClient,
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
@@ -213,12 +211,6 @@ export class TradingEngine {
   }
 
   async getBestAskPrice(tokenId: string): Promise<number> {
-    this.clobWsClient?.ensureSubscribed([tokenId]);
-    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
-    if (wsQuote && wsQuote.bestAsk > 0) {
-      return wsQuote.bestAsk;
-    }
-
     const book = await this.clobClient.getOrderBook(tokenId);
     return this.getBestAsk(book);
   }
@@ -233,15 +225,6 @@ export class TradingEngine {
   }
 
   async getTopOfBook(tokenId: string): Promise<{ bestBid: number; bestAsk: number }> {
-    this.clobWsClient?.ensureSubscribed([tokenId]);
-    const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
-    if (wsQuote && wsQuote.bestAsk > 0 && wsQuote.bestBid > 0) {
-      return {
-        bestBid: wsQuote.bestBid,
-        bestAsk: wsQuote.bestAsk,
-      };
-    }
-
     const book = await this.clobClient.getOrderBook(tokenId);
     const bestBid = this.parsePositive(book.bids?.[0]?.price);
     const bestAsk = this.parsePositive(book.asks?.[0]?.price);
