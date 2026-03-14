@@ -553,7 +553,7 @@ export class PolymarketBot {
           submittedCount += 1;
           successCount += 1;
           this.markRedeemTerminal(conditionId, "success");
-          this.logger.info(
+          this.logger.debug(
             {
               redeem,
               conditionId,
@@ -599,7 +599,7 @@ export class PolymarketBot {
     }
 
     await this.persistRedeemStates();
-    this.logger.info(
+    this.logger.debug(
       {
         candidates: redeemableConditionIds.length,
         cappedCandidates: candidates.length,
