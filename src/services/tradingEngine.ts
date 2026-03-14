@@ -6,6 +6,18 @@ import { OrderType, type OrderBookSummary } from "@polymarket/clob-client";
 import { arePositionsEqual, summarizePositions } from "./positionManager.js";
 import { sleep } from "../utils/time.js";
 
+export class MarketTokenMismatchError extends Error {
+  readonly conditionId: string;
+  readonly tokenId: string;
+
+  constructor(params: { conditionId: string; tokenId: string }) {
+    super(`Token ${params.tokenId} does not belong to condition ${params.conditionId}`);
+    this.name = "MarketTokenMismatchError";
+    this.conditionId = params.conditionId;
+    this.tokenId = params.tokenId;
+  }
+}
+
 export class TradingEngine {
   constructor(
     private readonly config: BotConfig,
@@ -189,6 +201,17 @@ export class TradingEngine {
     return ask > 0 ? ask : Number.POSITIVE_INFINITY;
   }
 
+  private assertTokenInConditionContext(params: { conditionId: string; tokenId: string; tokenIds: TokenIds }): void {
+    if (params.tokenId === params.tokenIds.upTokenId || params.tokenId === params.tokenIds.downTokenId) {
+      return;
+    }
+
+    throw new MarketTokenMismatchError({
+      conditionId: params.conditionId,
+      tokenId: params.tokenId,
+    });
+  }
+
   async getBestAskPrice(tokenId: string): Promise<number> {
     this.clobWsClient?.ensureSubscribed([tokenId]);
     const wsQuote = this.clobWsClient?.getFreshQuote(tokenId) ?? null;
@@ -198,6 +221,15 @@ export class TradingEngine {
 
     const book = await this.clobClient.getOrderBook(tokenId);
     return this.getBestAsk(book);
+  }
+
+  async getBestAskPriceForCondition(params: {
+    conditionId: string;
+    tokenIds: TokenIds;
+    tokenId: string;
+  }): Promise<number> {
+    this.assertTokenInConditionContext(params);
+    return this.getBestAskPrice(params.tokenId);
   }
 
   async getTopOfBook(tokenId: string): Promise<{ bestBid: number; bestAsk: number }> {
@@ -217,6 +249,15 @@ export class TradingEngine {
       bestBid,
       bestAsk,
     };
+  }
+
+  async getTopOfBookForCondition(params: {
+    conditionId: string;
+    tokenIds: TokenIds;
+    tokenId: string;
+  }): Promise<{ bestBid: number; bestAsk: number }> {
+    this.assertTokenInConditionContext(params);
+    return this.getTopOfBook(params.tokenId);
   }
 
   async hasOpenBuyOrderAtPrice(tokenId: string, price: number): Promise<boolean> {

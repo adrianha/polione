@@ -87,7 +87,7 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
     getConditionId: vi.fn(() => "cond-1"),
     getSecondsToMarketClose: vi.fn(() => 120),
   };
-  bot.clobWsClient = { ensureSubscribed: vi.fn() };
+  bot.clobWsClient = { ensureSubscribed: vi.fn(), clearQuotes: vi.fn() };
   bot.clobClient = { getUsdcBalance: vi.fn(async () => 100) };
   bot.dataClient = { getPositions: vi.fn(async () => []) };
   bot.tradingEngine = {
@@ -105,7 +105,9 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
       orderId: null,
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
+    getTopOfBookForCondition: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
+    getBestAskPriceForCondition: vi.fn(async () => 0.4),
     hasOpenBuyOrderAtPrice: vi.fn(async () => false),
     getOpenBuyExposure: vi.fn(async () => 0),
     getOrderFillState: vi.fn(async () => null),
@@ -130,7 +132,7 @@ afterEach(() => {
 });
 
 describe("missing-leg recovery integration", () => {
-  it("applies max conservatism at horizon and scales down buy size", async () => {
+  it("skips placement when horizon-scaled recovery size is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
     bot.dataClient.getPositions = vi
@@ -152,17 +154,13 @@ describe("missing-leg recovery integration", () => {
       });
 
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith(
-        "down-token",
-        expect.any(Number),
-        0.7,
-      );
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("uses less conservative size as force window approaches", async () => {
+  it("skips placement when mid-window scaled size is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 60);
     bot.dataClient.getPositions = vi
@@ -183,18 +181,17 @@ describe("missing-leg recovery integration", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
-      const placedSize = (bot.tradingEngine.placeSingleLimitBuyAtPrice as ReturnType<typeof vi.fn>).mock.calls[0][2];
-      expect(placedSize).toBeCloseTo(1.566667, 6);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("crosses to best ask when profitability cap allows immediate fill", async () => {
+  it("skips best-ask cross when resulting size is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
-    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.01, bestAsk: 0.06 }));
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({ bestBid: 0.01, bestAsk: 0.06 }));
     bot.dataClient.getPositions = vi
       .fn()
       .mockResolvedValueOnce([{ asset: "down-token", conditionId: "cond-1", size: 4 }])
@@ -207,7 +204,8 @@ describe("missing-leg recovery integration", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("up-token", 0.06, 1.4);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -217,7 +215,7 @@ describe("missing-leg recovery integration", () => {
     const { bot, tempDir } = await createBotHarness();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
     bot.dataClient.getPositions = vi
       .fn()
       .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
@@ -247,11 +245,11 @@ describe("missing-leg recovery integration", () => {
     }
   });
 
-  it("re-arms recovery when prior placement lock expired", async () => {
+  it("re-arms recovery path but skips placement when residual is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(2_000_000);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
     bot.dataClient.getPositions = vi
       .fn()
       .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
@@ -274,7 +272,7 @@ describe("missing-leg recovery integration", () => {
       });
 
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       nowSpy.mockRestore();
       await rm(tempDir, { recursive: true, force: true });
@@ -336,7 +334,7 @@ describe("missing-leg recovery integration", () => {
     }
   });
 
-  it("places only residual after subtracting pending open recovery exposure", async () => {
+  it("skips residual placement when post-coverage size is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
     bot.dataClient.getPositions = vi
@@ -362,7 +360,7 @@ describe("missing-leg recovery integration", () => {
       });
 
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 0.35);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -391,7 +389,7 @@ describe("missing-leg recovery integration", () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
     bot.dataClient.getPositions = vi.fn().mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
-    bot.tradingEngine.getBestAskPrice = vi.fn(async () => 0.5);
+    bot.tradingEngine.getBestAskPriceForCondition = vi.fn(async () => 0.5);
     bot.tradingEngine.completeMissingLegForHedge = vi.fn(async () => ({ tokenId: "down-token", amount: 4, result: { ok: true } }));
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
       status: "balanced",
@@ -418,7 +416,7 @@ describe("missing-leg recovery integration", () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
     bot.dataClient.getPositions = vi.fn().mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
-    bot.tradingEngine.getBestAskPrice = vi.fn(async () => 0.7);
+    bot.tradingEngine.getBestAskPriceForCondition = vi.fn(async () => 0.7);
 
     try {
       await bot.processTrackedCurrentMarket({

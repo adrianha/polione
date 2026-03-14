@@ -91,6 +91,17 @@ export class ClobWsClient {
     };
   }
 
+  clearQuotes(assetIds?: string[]): void {
+    if (!assetIds || assetIds.length === 0) {
+      this.quotes.clear();
+      return;
+    }
+
+    for (const assetId of assetIds) {
+      this.quotes.delete(assetId);
+    }
+  }
+
   private connect(): void {
     this.socket = new WebSocket(this.config.clobWsUrl);
 

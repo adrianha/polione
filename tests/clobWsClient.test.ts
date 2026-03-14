@@ -217,6 +217,35 @@ describe("clob websocket client", () => {
     expect(client.getFreshQuote("asset-2")).toBeNull();
   });
 
+  it("clears quotes for selected assets only", () => {
+    const logger = createLogger();
+    const client = new ClobWsClient(baseConfig, logger as never);
+
+    client.ensureSubscribed(["asset-a", "asset-b"]);
+    const socket = MockWebSocket.instances[0];
+    socket.emitOpen();
+    socket.emitMessage(
+      JSON.stringify({
+        event_type: "best_bid_ask",
+        asset_id: "asset-a",
+        best_bid: "0.2",
+        best_ask: "0.21",
+      }),
+    );
+    socket.emitMessage(
+      JSON.stringify({
+        event_type: "best_bid_ask",
+        asset_id: "asset-b",
+        best_bid: "0.3",
+        best_ask: "0.31",
+      }),
+    );
+
+    client.clearQuotes(["asset-a"]);
+    expect(client.getFreshQuote("asset-a")).toBeNull();
+    expect(client.getFreshQuote("asset-b")).toEqual({ bestBid: 0.3, bestAsk: 0.31 });
+  });
+
   it("reconnects after close and re-subscribes", async () => {
     const logger = createLogger();
     const config = { ...baseConfig, wsReconnectDelayMs: 500 };

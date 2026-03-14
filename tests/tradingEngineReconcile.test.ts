@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TradingEngine } from "../src/services/tradingEngine.js";
+import { MarketTokenMismatchError, TradingEngine } from "../src/services/tradingEngine.js";
 import type { BotConfig, PositionRecord, TokenIds } from "../src/types/domain.js";
 
 const baseConfig: BotConfig = {
@@ -222,5 +222,47 @@ describe("trading engine entry reconciliation", () => {
     expect(result.filledSize).toBe(0);
     expect(result.source).toBe("fallback");
     expect(result.orderId).toBeNull();
+  });
+
+  it("enforces strict condition token context for top of book", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    await expect(
+      engine.getTopOfBookForCondition({
+        conditionId: "cond-a",
+        tokenIds: { upTokenId: "up-a", downTokenId: "down-a" },
+        tokenId: "up-b",
+      }),
+    ).rejects.toBeInstanceOf(MarketTokenMismatchError);
+  });
+
+  it("enforces strict condition token context for best ask", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    await expect(
+      engine.getBestAskPriceForCondition({
+        conditionId: "cond-a",
+        tokenIds: { upTokenId: "up-a", downTokenId: "down-a" },
+        tokenId: "down-b",
+      }),
+    ).rejects.toBeInstanceOf(MarketTokenMismatchError);
   });
 });

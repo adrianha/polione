@@ -15,7 +15,7 @@ import { TelegramClient, escapeHtml, truncateId } from "./clients/telegramClient
 import { PolyRelayerClient } from "./clients/relayerClient.js";
 import { DataClient } from "./clients/dataClient.js";
 import { MarketDiscoveryService } from "./services/marketDiscovery.js";
-import { TradingEngine } from "./services/tradingEngine.js";
+import { MarketTokenMismatchError, TradingEngine } from "./services/tradingEngine.js";
 import { SettlementService } from "./services/settlement.js";
 import { RedeemPrecheckService } from "./services/redeemPrecheck.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
@@ -64,6 +64,8 @@ export class PolymarketBot {
   private readonly stateStore: StateStore;
   private latestCurrentMarket: MarketRecord | null = null;
   private latestNextMarket: MarketRecord | null = null;
+  private activeCurrentConditionId: string | null = null;
+  private activeCurrentTokenIds: TokenIds | null = null;
   private snapshotUpdatedAtMs: number | null = null;
   private telegramOffset: number | undefined;
 
@@ -831,6 +833,33 @@ export class PolymarketBot {
     );
   }
 
+  private noteCurrentMarketContext(conditionId: string, tokenIds: TokenIds): void {
+    if (this.activeCurrentConditionId === conditionId) {
+      this.activeCurrentTokenIds = tokenIds;
+      return;
+    }
+
+    const previousTokenIds = this.activeCurrentTokenIds;
+    const previousConditionId = this.activeCurrentConditionId;
+    this.activeCurrentConditionId = conditionId;
+    this.activeCurrentTokenIds = tokenIds;
+
+    if (!previousConditionId || !previousTokenIds) {
+      return;
+    }
+
+    this.recentRecoveryPlacements.delete(previousConditionId);
+    this.clobWsClient.clearQuotes([previousTokenIds.upTokenId, previousTokenIds.downTokenId]);
+    this.logger.debug(
+      {
+        previousConditionId,
+        nextConditionId: conditionId,
+        previousSlug: this.latestCurrentMarket?.slug,
+      },
+      "Cleared stale recovery and quote cache after current-market transition",
+    );
+  }
+
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
@@ -958,7 +987,34 @@ export class PolymarketBot {
       };
     }
 
-    const top = await this.tradingEngine.getTopOfBook(imbalance.missingLegTokenId);
+    let top: { bestBid: number; bestAsk: number };
+    try {
+      top = await this.tradingEngine.getTopOfBookForCondition({
+        conditionId: params.conditionId,
+        tokenIds: params.tokenIds,
+        tokenId: imbalance.missingLegTokenId,
+      });
+    } catch (error) {
+      if (error instanceof MarketTokenMismatchError) {
+        this.logger.warn(
+          {
+            conditionId: params.conditionId,
+            slug: params.market.slug,
+            tokenId: imbalance.missingLegTokenId,
+            upTokenId: params.tokenIds.upTokenId,
+            downTokenId: params.tokenIds.downTokenId,
+          },
+          "Skipped missing-leg recovery: token is outside current market context",
+        );
+        return {
+          status: "timeout",
+          finalSummary: latestSummary,
+          iterations,
+          reason: "Missing-leg token is not valid for current market condition",
+        };
+      }
+      throw error;
+    }
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
       bestAsk: top.bestAsk,
@@ -1137,7 +1193,27 @@ export class PolymarketBot {
       });
       return { status: "imbalanced" };
     }
-    const bestMissingAsk = await this.tradingEngine.getBestAskPrice(missingLegTokenId);
+    let bestMissingAsk = Number.POSITIVE_INFINITY;
+    try {
+      bestMissingAsk = await this.tradingEngine.getBestAskPriceForCondition({
+        conditionId,
+        tokenIds,
+        tokenId: missingLegTokenId,
+      });
+    } catch (error) {
+      if (error instanceof MarketTokenMismatchError) {
+        this.logger.warn(
+          {
+            conditionId,
+            slug: market.slug,
+            tokenId: missingLegTokenId,
+          },
+          "Skipped force-window hedge: missing-leg token is outside current market context",
+        );
+        return { status: "imbalanced" };
+      }
+      throw error;
+    }
 
     if (Number.isFinite(bestMissingAsk) && bestMissingAsk > 0) {
       const hedgeCheck = this.evaluateForceWindowHedge(entryPrice, bestMissingAsk);
@@ -1345,6 +1421,8 @@ export class PolymarketBot {
       );
       return;
     }
+
+    this.noteCurrentMarketContext(currentConditionId, currentTokenIds);
 
     const currentPositions = await this.dataClient.getPositions(positionsAddress, currentConditionId);
     const currentSummary = summarizePositions(currentPositions, currentTokenIds);

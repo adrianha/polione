@@ -86,7 +86,7 @@ const createBot = async () => {
     getConditionId: vi.fn(() => "cond-1"),
     getSecondsToMarketClose: vi.fn(() => 120),
   };
-  bot.clobWsClient = { ensureSubscribed: vi.fn() };
+  bot.clobWsClient = { ensureSubscribed: vi.fn(), clearQuotes: vi.fn() };
   bot.clobClient = { getUsdcBalance: vi.fn(async () => 100) };
   bot.dataClient = { getPositions: vi.fn(async () => []) };
   bot.tradingEngine = {
@@ -104,7 +104,9 @@ const createBot = async () => {
       orderId: null,
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
+    getTopOfBookForCondition: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
+    getBestAskPriceForCondition: vi.fn(async () => 0.4),
     hasOpenBuyOrderAtPrice: vi.fn(async () => false),
     getOpenBuyExposure: vi.fn(async () => 0),
     getOrderFillState: vi.fn(async () => null),
@@ -150,7 +152,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("runs continuous recovery for one-sided current-market imbalance outside force window", async () => {
+  it("skips continuous recovery placement when computed size is below minimum order size", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.dataClient.getPositions = vi
@@ -170,8 +172,8 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.getTopOfBook).toHaveBeenCalled();
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.getTopOfBookForCondition).toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
       expect(bot.notifyEntryFilledOnce).not.toHaveBeenCalled();
     } finally {
@@ -379,7 +381,7 @@ describe("bot lifecycle", () => {
     }
   });
 
-  it("recovery buys only residual imbalance amount", async () => {
+  it("recovery skips residual placement when below minimum order size", async () => {
     const { bot, tempDir } = await createBot();
     bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
     bot.dataClient.getPositions = vi
@@ -404,7 +406,8 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledWith("down-token", expect.any(Number), 0.7);
+      expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -569,7 +572,7 @@ describe("bot lifecycle", () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getTopOfBook = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
 
     bot.recentRecoveryPlacements.set("cond-1", {
       placedAtMs: Date.now(),
