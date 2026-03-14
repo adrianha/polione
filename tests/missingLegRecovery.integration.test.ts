@@ -106,6 +106,7 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
+    hasOpenBuyOrderAtPrice: vi.fn(async () => false),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
   };
@@ -269,6 +270,29 @@ describe("missing-leg recovery integration", () => {
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).toHaveBeenCalledTimes(1);
     } finally {
       nowSpy.mockRestore();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not cancel and replace when equivalent open recovery order already exists", async () => {
+    const { bot, tempDir } = await createBotHarness();
+    bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
+    bot.tradingEngine.hasOpenBuyOrderAtPrice = vi.fn(async () => true);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }])
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+
+    try {
+      await bot.processTrackedCurrentMarket({
+        currentMarket: market,
+        currentConditionId: "cond-1",
+        positionsAddress: "0xabc",
+      });
+
+      expect(bot.tradingEngine.cancelEntryOpenOrders).not.toHaveBeenCalled();
+      expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
+    } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
   });

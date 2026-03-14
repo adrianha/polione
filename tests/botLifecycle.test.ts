@@ -105,6 +105,7 @@ const createBot = async () => {
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
     getBestAskPrice: vi.fn(async () => 0.4),
+    hasOpenBuyOrderAtPrice: vi.fn(async () => false),
     cancelEntryOpenOrders: vi.fn(async () => []),
     completeMissingLegForHedge: vi.fn(async () => ({ ok: true })),
   };

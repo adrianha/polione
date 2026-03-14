@@ -219,6 +219,45 @@ export class TradingEngine {
     };
   }
 
+  async hasOpenBuyOrderAtPrice(tokenId: string, price: number): Promise<boolean> {
+    const targetPrice = this.parsePositive(price);
+    if (targetPrice <= 0) {
+      return false;
+    }
+
+    const openOrders = await this.clobClient.getOpenOrders();
+    const records = Array.isArray(openOrders) ? openOrders : [];
+    const epsilon = 1e-6;
+
+    return records.some((record) => {
+      const tokenIdValue =
+        (record as { tokenID?: unknown }).tokenID ??
+        (record as { tokenId?: unknown }).tokenId ??
+        (record as { asset_id?: unknown }).asset_id ??
+        (record as { assetId?: unknown }).assetId;
+      if (tokenIdValue !== tokenId) {
+        return false;
+      }
+
+      const sideValue =
+        (record as { side?: unknown }).side ??
+        (record as { orderSide?: unknown }).orderSide ??
+        (record as { order_side?: unknown }).order_side;
+      const side = typeof sideValue === "string" ? sideValue.toUpperCase() : "";
+      if (side !== "BUY") {
+        return false;
+      }
+
+      const orderPrice = this.parsePositive(
+        (record as { price?: unknown }).price ??
+          (record as { limitPrice?: unknown }).limitPrice ??
+          (record as { limit_price?: unknown }).limit_price,
+      );
+
+      return orderPrice > 0 && Math.abs(orderPrice - targetPrice) < epsilon;
+    });
+  }
+
   async cancelEntryOpenOrders(tokenIds: TokenIds): Promise<unknown[]> {
     return this.clobClient.cancelOpenOrdersForTokenIds([tokenIds.upTokenId, tokenIds.downTokenId]);
   }

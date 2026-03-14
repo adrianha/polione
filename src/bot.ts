@@ -986,6 +986,21 @@ export class PolymarketBot {
       };
     }
 
+    const hasSamePriceOpenRecoveryOrder = await this.tradingEngine.hasOpenBuyOrderAtPrice(
+      imbalance.missingLegTokenId,
+      nextPrice,
+    );
+    if (hasSamePriceOpenRecoveryOrder) {
+      return {
+        status: "unchanged-price",
+        finalSummary: latestSummary,
+        iterations,
+        lastPlacedPrice: nextPrice,
+        missingLegTokenId: imbalance.missingLegTokenId,
+        reason: "Skipped re-order because equivalent open recovery order already exists",
+      };
+    }
+
     await this.tradingEngine.cancelEntryOpenOrders(params.tokenIds);
     const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(
       imbalance.missingLegTokenId,
@@ -1281,8 +1296,7 @@ export class PolymarketBot {
     const recentPlacement = this.recentRecoveryPlacements.get(currentConditionId);
     if (recentPlacement) {
       const changedSinceLastPlacement = this.didSummaryChange(recentPlacement.summary, currentSummary);
-      const placementExpired = nowMs - recentPlacement.placedAtMs >= PolymarketBot.RECOVERY_REARM_COOLDOWN_MS;
-      if (positionsEqual || changedSinceLastPlacement || placementExpired) {
+      if (positionsEqual || changedSinceLastPlacement) {
         this.recentRecoveryPlacements.delete(currentConditionId);
       }
     }
