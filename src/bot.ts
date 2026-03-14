@@ -1048,29 +1048,9 @@ export class PolymarketBot {
         reason: "Strict cap reached on missing leg; no further buys allowed",
       };
     }
+
     const cappedMissingAmount = Number(Math.min(effectiveMissingAmount, remainingForMissingLeg).toFixed(6));
-    let conservativeMissingAmount = Number((cappedMissingAmount * recoveryPolicy.sizeFraction).toFixed(6));
-
-    if (conservativeMissingAmount <= 0) {
-      return {
-        status: "timeout",
-        finalSummary: latestSummary,
-        iterations,
-        reason: "Missing-leg conservative size resolved to zero",
-      };
-    }
-
-    conservativeMissingAmount = Number(Math.min(cappedMissingAmount, conservativeMissingAmount).toFixed(6));
-    if (conservativeMissingAmount <= 0) {
-      return {
-        status: "timeout",
-        finalSummary: latestSummary,
-        iterations,
-        reason: "Missing-leg conservative size resolved to zero after cap clamp",
-      };
-    }
-
-    if (conservativeMissingAmount < PolymarketBot.MIN_MARKET_MAKER_ORDER_SIZE) {
+    if (cappedMissingAmount < PolymarketBot.MIN_MARKET_MAKER_ORDER_SIZE) {
       this.logger.info(
         {
           conditionId: params.conditionId,
@@ -1079,17 +1059,21 @@ export class PolymarketBot {
           remainingAllowance: remainingForMissingLeg,
           recoveryPolicy,
           cappedMissingAmount,
-          conservativeMissingAmount,
         },
-        "Missing-leg recovery order size below minimum order size; Use minimum order size instead.",
+        "Missing-leg recovery order size below minimum order size; Skipping missing-leg recovery for this cycle.",
       );
-      conservativeMissingAmount = this.config.orderSize;
+      return {
+        status: "timeout",
+        finalSummary: latestSummary,
+        iterations,
+        reason: "Missing-leg recovery order size below minimum order size after cap clamp",
+      };
     }
 
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
       nextPrice,
-      conservativeMissingAmount,
+      cappedMissingAmount,
     );
     const orderId = this.tradingEngine.extractOrderId(orderResult);
 
@@ -1099,11 +1083,11 @@ export class PolymarketBot {
       iterations,
       lastPlacedPrice: nextPrice,
       missingLegTokenId: imbalance.missingLegTokenId,
-      placedSize: conservativeMissingAmount,
+      placedSize: cappedMissingAmount,
       orderId,
       reason:
-        conservativeMissingAmount < Number(effectiveMissingAmount.toFixed(6))
-          ? `Placed conservative missing-leg recovery order for this cycle (${conservativeMissingAmount}/${Number(effectiveMissingAmount.toFixed(6))})`
+        cappedMissingAmount < Number(effectiveMissingAmount.toFixed(6))
+          ? `Placed conservative missing-leg recovery order for this cycle (${cappedMissingAmount}/${Number(effectiveMissingAmount.toFixed(6))})`
           : "Placed one missing-leg recovery order for this cycle",
     };
   }
