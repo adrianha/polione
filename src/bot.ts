@@ -833,9 +833,8 @@ export class PolymarketBot {
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
-    positionsAddress: string;
     tokenIds: TokenIds;
-    initialSummary: PositionSummary;
+    currentSummary: PositionSummary;
     filledLegAvgPrice: number;
     previousPlacement?: {
       placedAtMs: number;
@@ -855,11 +854,11 @@ export class PolymarketBot {
     iterations: number;
     reason?: string;
   }> {
-    const initialImbalance = this.getImbalancePlan(params.initialSummary, params.tokenIds);
+    const initialImbalance = this.getImbalancePlan(params.currentSummary, params.tokenIds);
     if (!initialImbalance) {
       return {
         status: "not-applicable",
-        finalSummary: params.initialSummary,
+        finalSummary: params.currentSummary,
         iterations: 0,
         reason: "Initial position is not imbalanced",
       };
@@ -868,7 +867,7 @@ export class PolymarketBot {
     if (!this.config.entryContinuousRepriceEnabled) {
       return {
         status: "timeout",
-        finalSummary: params.initialSummary,
+        finalSummary: params.currentSummary,
         iterations: 0,
         reason: "Continuous repricing disabled",
       };
@@ -879,16 +878,14 @@ export class PolymarketBot {
     if (secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
       return {
         status: "force-window",
-        finalSummary: params.initialSummary,
+        finalSummary: params.currentSummary,
         iterations,
         reason: "Reached force-sell window during missing-leg recovery",
       };
     }
 
     const recoveryPolicy = this.getTimeAwareRecoveryPolicy(secondsToClose);
-
-    const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
-    const latestSummary = summarizePositions(positions, params.tokenIds);
+    const latestSummary = params.currentSummary;
     const buyCapacity = this.getConditionBuyCapacity(latestSummary);
     if (buyCapacity.reachedCap) {
       return {
@@ -1485,9 +1482,8 @@ export class PolymarketBot {
       const recovery = await this.runContinuousMissingLegRecovery({
         market: currentMarket,
         conditionId: currentConditionId,
-        positionsAddress,
         tokenIds: currentTokenIds,
-        initialSummary: currentSummary,
+        currentSummary,
         filledLegAvgPrice: this.config.orderPrice,
         previousPlacement: placementLock
           ? {
