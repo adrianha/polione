@@ -1035,7 +1035,14 @@ export class PolymarketBot {
       };
     }
 
-    let top: { bestBid: number; bestAsk: number; topBids: number[]; topAsks: number[] };
+    let top: {
+      bestBid: number;
+      bestAsk: number;
+      topBids: number[];
+      topAsks: number[];
+      rawTopBids: number[];
+      rawTopAsks: number[];
+    };
     try {
       top = await this.tradingEngine.getTopOfBookForCondition({
         conditionId: params.conditionId,
@@ -1075,6 +1082,8 @@ export class PolymarketBot {
     }
     const topBids = Array.isArray(top.topBids) && top.topBids.length > 0 ? top.topBids : [top.bestBid];
     const topAsks = Array.isArray(top.topAsks) && top.topAsks.length > 0 ? top.topAsks : [top.bestAsk];
+    const rawTopBids = Array.isArray(top.rawTopBids) && top.rawTopBids.length > 0 ? top.rawTopBids : topBids;
+    const rawTopAsks = Array.isArray(top.rawTopAsks) && top.rawTopAsks.length > 0 ? top.rawTopAsks : topAsks;
 
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
@@ -1229,6 +1238,8 @@ export class PolymarketBot {
         bestAsk: top.bestAsk,
         topBids,
         topAsks,
+        rawTopBids,
+        rawTopAsks,
         spread: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)),
         makerPrice,
         canCrossBestAsk,
@@ -1271,6 +1282,12 @@ export class PolymarketBot {
           { key: "maxMissingPrice", value: maxMissingPrice },
           { key: "bestBid", value: top.bestBid },
           { key: "bestAsk", value: top.bestAsk },
+          { key: "rawBid1", value: rawTopBids[0] },
+          { key: "rawBid2", value: rawTopBids[1] },
+          { key: "rawBid3", value: rawTopBids[2] },
+          { key: "rawAsk1", value: rawTopAsks[0] },
+          { key: "rawAsk2", value: rawTopAsks[1] },
+          { key: "rawAsk3", value: rawTopAsks[2] },
           { key: "bid1", value: topBids[0] },
           { key: "bid2", value: topBids[1] },
           { key: "bid3", value: topBids[2] },

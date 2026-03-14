@@ -229,16 +229,20 @@ export class TradingEngine {
     bestAsk: number;
     topBids: number[];
     topAsks: number[];
+    rawTopBids: number[];
+    rawTopAsks: number[];
   }> {
     const book = await this.clobClient.getOrderBook(tokenId);
-    const topBids = (book.bids ?? [])
+    const rawTopBids = (book.bids ?? [])
       .map((level) => this.parsePositive(level?.price))
       .filter((price) => price > 0)
       .slice(0, 3);
-    const topAsks = (book.asks ?? [])
+    const rawTopAsks = (book.asks ?? [])
       .map((level) => this.parsePositive(level?.price))
       .filter((price) => price > 0)
       .slice(0, 3);
+    const topBids = [...rawTopBids].sort((a, b) => b - a);
+    const topAsks = [...rawTopAsks].sort((a, b) => a - b);
     const bestBid = topBids[0] ?? 0;
     const bestAsk = topAsks[0] ?? 0;
     return {
@@ -246,6 +250,8 @@ export class TradingEngine {
       bestAsk,
       topBids,
       topAsks,
+      rawTopBids,
+      rawTopAsks,
     };
   }
 
@@ -258,6 +264,8 @@ export class TradingEngine {
     bestAsk: number;
     topBids: number[];
     topAsks: number[];
+    rawTopBids: number[];
+    rawTopAsks: number[];
   }> {
     this.assertTokenInConditionContext(params);
     return this.getTopOfBook(params.tokenId);

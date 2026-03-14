@@ -265,4 +265,28 @@ describe("trading engine entry reconciliation", () => {
       }),
     ).rejects.toBeInstanceOf(MarketTokenMismatchError);
   });
+
+  it("normalizes unsorted orderbook levels for top-of-book", async () => {
+    const clobClient = {
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.01" }, { price: "0.03" }, { price: "0.02" }],
+        asks: [{ price: "0.99" }, { price: "0.97" }, { price: "0.98" }],
+      }),
+      cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
+      placeMarketOrder: async (_params: unknown) => ({ ok: true }),
+      placeLimitOrdersBatch: async (_params: unknown) => [],
+    };
+    const dataClient = {
+      getPositions: async (_addr: string, _conditionId?: string): Promise<PositionRecord[]> => [],
+    };
+    const engine = new TradingEngine(baseConfig, clobClient as never, dataClient as never);
+
+    const top = await engine.getTopOfBook("token-a");
+    expect(top.rawTopBids).toEqual([0.01, 0.03, 0.02]);
+    expect(top.rawTopAsks).toEqual([0.99, 0.97, 0.98]);
+    expect(top.topBids).toEqual([0.03, 0.02, 0.01]);
+    expect(top.topAsks).toEqual([0.97, 0.98, 0.99]);
+    expect(top.bestBid).toBe(0.03);
+    expect(top.bestAsk).toBe(0.97);
+  });
 });

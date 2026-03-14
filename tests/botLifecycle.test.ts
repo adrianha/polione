@@ -104,7 +104,14 @@ const createBot = async () => {
       orderId: null,
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
-    getTopOfBookForCondition: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
+    getTopOfBookForCondition: vi.fn(async () => ({
+      bestBid: 0.35,
+      bestAsk: 0.36,
+      topBids: [0.35, 0.34, 0.33],
+      topAsks: [0.36, 0.37, 0.38],
+      rawTopBids: [0.35, 0.34, 0.33],
+      rawTopAsks: [0.36, 0.37, 0.38],
+    })),
     getBestAskPrice: vi.fn(async () => 0.4),
     getBestAskPriceForCondition: vi.fn(async () => 0.4),
     hasOpenBuyOrderAtPrice: vi.fn(async () => false),
@@ -583,7 +590,14 @@ describe("bot lifecycle", () => {
     const { bot, tempDir } = await createBot();
     bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({ bestBid: 0.349, bestAsk: 0.351 }));
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
+      bestBid: 0.349,
+      bestAsk: 0.351,
+      topBids: [0.349, 0.348],
+      topAsks: [0.351, 0.352],
+      rawTopBids: [0.349, 0.348],
+      rawTopAsks: [0.351, 0.352],
+    }));
 
     bot.recentRecoveryPlacements.set("cond-1", {
       placedAtMs: Date.now(),
