@@ -1696,8 +1696,13 @@ export class PolymarketBot {
     const recentPlacement = this.recentRecoveryPlacements.get(currentConditionId);
     if (recentPlacement) {
       const changedSinceLastPlacement = this.didSummaryChange(recentPlacement.summary, currentSummary);
-      if (positionsEqual || changedSinceLastPlacement) {
+      if (positionsEqual) {
         this.recentRecoveryPlacements.delete(currentConditionId);
+      } else if (changedSinceLastPlacement) {
+        this.recentRecoveryPlacements.set(currentConditionId, {
+          ...recentPlacement,
+          summary: currentSummary,
+        });
       }
     }
 
