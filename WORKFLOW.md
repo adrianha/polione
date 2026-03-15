@@ -2,6 +2,18 @@
 
 This document describes the workflow currently implemented in the TypeScript bot.
 
+## Runtime variants
+
+- V1 (`BOT_RUNTIME=v1`, default): legacy multi-loop orchestrator in `src/bot.ts`.
+- V2 (`BOT_RUNTIME=v2`): domain-based orchestrator in `src/bot-v2` with a single scheduler loop.
+
+V2 scheduler model:
+
+- One heartbeat loop in `src/bot-v2/runtime/scheduler.ts`.
+- Due tasks run independently with per-task error isolation.
+- Task timing is configured by interval env vars (or falls back to legacy sleep vars).
+- Domain logic is split into SRP services in `src/bot-v2/domain`.
+
 ## High-level execution flow
 
 ```text

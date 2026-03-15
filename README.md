@@ -15,6 +15,24 @@ TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mod
 - `DRY_RUN=true` (default): simulates CLOB and relayer writes and logs intent payloads.
 - `DRY_RUN=false`: enables live order placement and relayer transactions.
 
+## Runtime selection (V1 vs V2)
+
+- `BOT_RUNTIME=v1` (default): runs legacy orchestrator in `src/bot.ts`.
+- `BOT_RUNTIME=v2`: runs domain-based orchestrator in `src/bot-v2`.
+
+V2 is designed around single responsibility and one scheduler heartbeat:
+
+- Runtime scheduler: one loop dispatching due tasks.
+- Tasks: discovery, current-market management, entry, redeem, telegram.
+- Domain services: entry, recovery, redeem, settlement, notification, state.
+- Shared runtime primitives: condition lock service and snapshot store.
+
+Start V2 locally:
+
+```bash
+BOT_RUNTIME=v2 bun run dev
+```
+
 ## Quick start
 
 1. Install dependencies:
@@ -55,6 +73,10 @@ bun run bot
 
 - Entry point: `src/main.ts`
 - Main orchestration loop: `src/bot.ts`
+- V2 orchestration root: `src/bot-v2/botV2.ts`
+- V2 scheduler: `src/bot-v2/runtime/scheduler.ts`
+- V2 tasks: `src/bot-v2/runtime/tasks/*.ts`
+- V2 domain services: `src/bot-v2/domain/**/*.ts`
 - Env parsing and validation: `src/config/env.ts`
 - CLOB adapter: `src/clients/clobClient.ts`
 - Relayer adapter: `src/clients/relayerClient.ts`
@@ -114,6 +136,16 @@ Optional:
 
 - `FUNDER` (when set, used as the positions address instead of signer address)
 - `POLYMARKET_RELAYER_URL`, `POLYGON_RPC` (both required to enable relayer)
+- `BOT_RUNTIME=v1|v2` (default `v1`)
+
+V2 scheduler cadence (optional; V2 only):
+
+- `SCHEDULER_TICK_SECONDS` (default `1`)
+- `DISCOVERY_INTERVAL_SECONDS` (fallback: `LOOP_SLEEP_SECONDS`)
+- `CURRENT_MARKET_INTERVAL_SECONDS` (fallback: `CURRENT_LOOP_SLEEP_SECONDS`)
+- `ENTRY_INTERVAL_SECONDS` (fallback: `LOOP_SLEEP_SECONDS`)
+- `REDEEM_INTERVAL_SECONDS` (fallback: `REDEEM_LOOP_SLEEP_SECONDS`)
+- `TELEGRAM_POLL_INTERVAL_SECONDS` (fallback: `max(2, LOOP_SLEEP_SECONDS)`)
 
 Optional relayer builder auth:
 

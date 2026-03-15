@@ -34,6 +34,12 @@ export interface BotConfig {
   loopSleepSeconds: number;
   currentLoopSleepSeconds: number;
   redeemLoopSleepSeconds: number;
+  schedulerTickSeconds?: number;
+  discoveryIntervalSeconds?: number;
+  currentMarketIntervalSeconds?: number;
+  entryIntervalSeconds?: number;
+  redeemIntervalSeconds?: number;
+  telegramPollIntervalSeconds?: number;
   redeemEnabled: boolean;
   redeemMaxRetries: number;
   redeemRetryBackoffMs: number;
