@@ -1709,7 +1709,7 @@ export class PolymarketBot {
     if (!positionsEqual) {
       this.balancedOrderCleanupDone.delete(currentConditionId);
       this.balancedChecksByCondition.delete(currentConditionId);
-    } else if (currentSummary.upSize > 0) {
+    } else if (this.hasAnyFill(currentSummary)) {
       const confirmations = (this.balancedChecksByCondition.get(currentConditionId) ?? 0) + 1;
       this.balancedChecksByCondition.set(currentConditionId, confirmations);
     }
