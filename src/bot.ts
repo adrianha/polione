@@ -911,7 +911,6 @@ export class PolymarketBot {
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
-    positionsAddress: string;
     tokenIds: TokenIds;
     currentSummary: PositionSummary;
     filledLegAvgPrice: number;
@@ -964,8 +963,8 @@ export class PolymarketBot {
     }
 
     const recoveryPolicy = this.getTimeAwareRecoveryPolicy(secondsToClose);
-    let latestSummary = params.currentSummary;
-    let buyCapacity = this.getConditionBuyCapacity(latestSummary);
+    const latestSummary = params.currentSummary;
+    const buyCapacity = this.getConditionBuyCapacity(latestSummary);
     if (buyCapacity.reachedCap) {
       return {
         status: "timeout",
@@ -1184,69 +1183,6 @@ export class PolymarketBot {
       };
     }
 
-    const preRefreshEffectiveMissingAmount = effectiveMissingAmount;
-    let refreshedSummary: PositionSummary | undefined;
-    let refreshedMissingAmount: number | undefined;
-    let refreshedOpenCoverage: number | undefined;
-    let refreshedEffectiveMissingAmount: number | undefined;
-
-    const refreshedPositions = await this.dataClient
-      .getPositions(params.positionsAddress, params.conditionId)
-      .catch(() => null);
-    if (Array.isArray(refreshedPositions)) {
-      latestSummary = summarizePositions(refreshedPositions, params.tokenIds);
-      refreshedSummary = latestSummary;
-
-      if (
-        latestSummary.upSize > 0 &&
-        latestSummary.downSize > 0 &&
-        arePositionsEqual(latestSummary, this.config.positionEqualityTolerance)
-      ) {
-        return {
-          status: "balanced",
-          finalSummary: latestSummary,
-          iterations,
-        };
-      }
-
-      const refreshedImbalance = this.getImbalancePlan(latestSummary, params.tokenIds);
-      if (!refreshedImbalance || refreshedImbalance.missingLegTokenId !== imbalance.missingLegTokenId) {
-        return {
-          status: "not-applicable",
-          finalSummary: latestSummary,
-          iterations,
-          reason: "Imbalance changed before placing missing-leg recovery order",
-        };
-      }
-
-      refreshedMissingAmount = refreshedImbalance.missingAmount;
-      refreshedOpenCoverage = await this.tradingEngine.getOpenBuyExposure(refreshedImbalance.missingLegTokenId);
-      refreshedEffectiveMissingAmount = Number(
-        Math.max(0, refreshedImbalance.missingAmount - refreshedOpenCoverage).toFixed(6),
-      );
-      effectiveMissingAmount = Math.min(effectiveMissingAmount, refreshedEffectiveMissingAmount);
-      if (effectiveMissingAmount <= 1e-6) {
-        return {
-          status: "unchanged-price",
-          finalSummary: latestSummary,
-          iterations,
-          lastPlacedPrice: finalPrice,
-          missingLegTokenId: imbalance.missingLegTokenId,
-          reason: "Skipped re-order because refreshed missing-leg coverage already satisfies missing amount",
-        };
-      }
-
-      buyCapacity = this.getConditionBuyCapacity(latestSummary);
-      if (buyCapacity.reachedCap) {
-        return {
-          status: "timeout",
-          finalSummary: latestSummary,
-          iterations,
-          reason: "Strict cap reached after refresh; no further buys allowed",
-        };
-      }
-    }
-
     await this.tradingEngine.cancelEntryOpenOrders(params.tokenIds);
     const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(
       imbalance.missingLegTokenId,
@@ -1291,12 +1227,7 @@ export class PolymarketBot {
         secondsToClose,
         summary: latestSummary,
         missingAmount: imbalance.missingAmount,
-        preRefreshEffectiveMissingAmount,
         effectiveMissingAmount,
-        refreshedSummary,
-        refreshedMissingAmount,
-        refreshedOpenCoverage,
-        refreshedEffectiveMissingAmount,
         remainingForMissingLeg,
         cappedMissingAmount,
         recoveryPolicy,
@@ -1348,11 +1279,7 @@ export class PolymarketBot {
           { key: "missingLegTokenId", value: imbalance.missingLegTokenId },
           { key: "secondsToClose", value: secondsToClose },
           { key: "missingAmount", value: imbalance.missingAmount },
-          { key: "preRefreshEffectiveMissingAmount", value: preRefreshEffectiveMissingAmount },
           { key: "effectiveMissingAmount", value: effectiveMissingAmount },
-          { key: "refreshedMissingAmount", value: refreshedMissingAmount },
-          { key: "refreshedOpenCoverage", value: refreshedOpenCoverage },
-          { key: "refreshedEffectiveMissingAmount", value: refreshedEffectiveMissingAmount },
           { key: "remainingForMissingLeg", value: remainingForMissingLeg },
           { key: "cappedMissingAmount", value: cappedMissingAmount },
           { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
@@ -1865,7 +1792,6 @@ export class PolymarketBot {
       const recovery = await this.runContinuousMissingLegRecovery({
         market: currentMarket,
         conditionId: currentConditionId,
-        positionsAddress,
         tokenIds: currentTokenIds,
         currentSummary,
         filledLegAvgPrice: this.config.orderPrice,
