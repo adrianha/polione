@@ -14,7 +14,10 @@ const parseOutcome = (value?: string): "UP" | "DOWN" | null => {
   return null;
 };
 
-export const summarizePositions = (positions: PositionRecord[], tokenIds: TokenIds): PositionSummary => {
+export const summarizePositions = (
+  positions: PositionRecord[],
+  tokenIds: TokenIds,
+): PositionSummary => {
   let up = 0;
   let down = 0;
 

@@ -21,7 +21,13 @@ import { arePositionsEqual, summarizePositions } from "./services/positionManage
 import { StateStore } from "./utils/stateStore.js";
 import { sleep } from "./utils/time.js";
 
-type ConditionLifecycle = "new" | "entry-pending" | "recovery-pending" | "force-window" | "balanced" | "terminal";
+type ConditionLifecycle =
+  | "new"
+  | "entry-pending"
+  | "recovery-pending"
+  | "force-window"
+  | "balanced"
+  | "terminal";
 
 export class PolymarketBot {
   private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
@@ -117,7 +123,9 @@ export class PolymarketBot {
       if (detail.value === null || detail.value === undefined || detail.value === "") {
         continue;
       }
-      lines.push(`<b>${escapeHtml(detail.key)}</b>: <code>${escapeHtml(String(detail.value))}</code>`);
+      lines.push(
+        `<b>${escapeHtml(detail.key)}</b>: <code>${escapeHtml(String(detail.value))}</code>`,
+      );
     }
 
     return lines.join("\n");
@@ -433,7 +441,8 @@ export class PolymarketBot {
       });
     }
 
-    const retryAtMs = params.retryAtMs ?? Date.now() + Math.max(this.config.redeemRetryBackoffMs, 1000);
+    const retryAtMs =
+      params.retryAtMs ?? Date.now() + Math.max(this.config.redeemRetryBackoffMs, 1000);
     return this.transitionRedeemState({
       conditionId: params.conditionId,
       status: "pending",
@@ -451,7 +460,8 @@ export class PolymarketBot {
     return this.transitionRedeemState({
       conditionId,
       status: "terminal",
-      nextRetryAtMs: Date.now() + (terminalReason === "success" ? this.config.redeemSuccessCooldownMs : 0),
+      nextRetryAtMs:
+        Date.now() + (terminalReason === "success" ? this.config.redeemSuccessCooldownMs : 0),
       terminalReason,
       lastError,
     });
@@ -463,7 +473,11 @@ export class PolymarketBot {
       return false;
     }
     if (state.attempts >= this.config.redeemMaxRetries) {
-      this.markRedeemTerminal(conditionId, "max_retries_exhausted", state.lastError ?? "Retry budget exhausted");
+      this.markRedeemTerminal(
+        conditionId,
+        "max_retries_exhausted",
+        state.lastError ?? "Retry budget exhausted",
+      );
       return false;
     }
     return nowMs >= state.nextRetryAtMs;
@@ -499,7 +513,9 @@ export class PolymarketBot {
     const redeemableConditionIds = Array.from(
       new Set(
         positions
-          .filter((position) => position.redeemable === true && typeof position.conditionId === "string")
+          .filter(
+            (position) => position.redeemable === true && typeof position.conditionId === "string",
+          )
           .map((position) => position.conditionId)
           .filter((conditionId) => conditionId.length > 0),
       ),
@@ -534,13 +550,21 @@ export class PolymarketBot {
 
         if (precheck.status === "no_redeemable_balance") {
           terminalNoBalanceCount += 1;
-          this.markRedeemTerminal(conditionId, "already_redeemed", precheck.reason ?? "No redeemable balance");
+          this.markRedeemTerminal(
+            conditionId,
+            "already_redeemed",
+            precheck.reason ?? "No redeemable balance",
+          );
           return;
         }
 
         if (precheck.status === "permanent_error") {
           failedTerminalCount += 1;
-          this.markRedeemTerminal(conditionId, "permanent_error", precheck.reason ?? "Permanent precheck error");
+          this.markRedeemTerminal(
+            conditionId,
+            "permanent_error",
+            precheck.reason ?? "Permanent precheck error",
+          );
           return;
         }
 
@@ -737,9 +761,11 @@ export class PolymarketBot {
     maxHedgePrice: number;
     expectedLockPnlPerShare: number;
   } {
-    const maxHedgePrice = 1 - entryPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare;
+    const maxHedgePrice =
+      1 - entryPrice - this.config.forceWindowFeeBuffer - this.config.forceWindowMinProfitPerShare;
 
-    const expectedLockPnlPerShare = 1 - entryPrice - bestMissingAsk - this.config.forceWindowFeeBuffer;
+    const expectedLockPnlPerShare =
+      1 - entryPrice - bestMissingAsk - this.config.forceWindowFeeBuffer;
 
     return {
       isProfitable: expectedLockPnlPerShare >= this.config.forceWindowMinProfitPerShare,
@@ -797,7 +823,8 @@ export class PolymarketBot {
     const upSize = Math.max(0, summary.upSize);
     const downSize = Math.max(0, summary.downSize);
     const reachedCap =
-      cap - upSize <= this.config.positionEqualityTolerance && cap - downSize <= this.config.positionEqualityTolerance;
+      cap - upSize <= this.config.positionEqualityTolerance &&
+      cap - downSize <= this.config.positionEqualityTolerance;
 
     return {
       hasAnyExposure: upSize > 0 || downSize > 0,
@@ -870,7 +897,9 @@ export class PolymarketBot {
     return {
       progress,
       extraProfitBuffer: this.config.entryRecoveryExtraProfitMax * progress,
-      makerOffset: this.config.entryContinuousMakerOffset + this.config.entryRecoveryPassiveOffsetMax * progress,
+      makerOffset:
+        this.config.entryContinuousMakerOffset +
+        this.config.entryRecoveryPassiveOffsetMax * progress,
       sizeFraction: 1 - progress * (1 - minSizeFraction),
     };
   }
@@ -878,7 +907,8 @@ export class PolymarketBot {
   private didSummaryChange(previous: PositionSummary, current: PositionSummary): boolean {
     const epsilon = 1e-6;
     return (
-      Math.abs(previous.upSize - current.upSize) > epsilon || Math.abs(previous.downSize - current.downSize) > epsilon
+      Math.abs(previous.upSize - current.upSize) > epsilon ||
+      Math.abs(previous.downSize - current.downSize) > epsilon
     );
   }
 
@@ -924,7 +954,13 @@ export class PolymarketBot {
       orderId: string | null;
     };
   }): Promise<{
-    status: "balanced" | "placed" | "unchanged-price" | "timeout" | "force-window" | "not-applicable";
+    status:
+      | "balanced"
+      | "placed"
+      | "unchanged-price"
+      | "timeout"
+      | "force-window"
+      | "not-applicable";
     finalSummary: PositionSummary;
     lastPlacedPrice?: number;
     missingLegTokenId?: string;
@@ -998,18 +1034,30 @@ export class PolymarketBot {
     }
 
     let effectiveMissingAmount = imbalance.missingAmount;
-    if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
-      const openBuyCoverage = await this.tradingEngine.getOpenBuyExposure(imbalance.missingLegTokenId);
-      const snapshotLikelyLagging = !this.didSummaryChange(params.previousPlacement.summary, latestSummary);
+    if (
+      params.previousPlacement &&
+      params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId
+    ) {
+      const openBuyCoverage = await this.tradingEngine.getOpenBuyExposure(
+        imbalance.missingLegTokenId,
+      );
+      const snapshotLikelyLagging = !this.didSummaryChange(
+        params.previousPlacement.summary,
+        latestSummary,
+      );
 
       let matchedButNotReflected = 0;
       if (snapshotLikelyLagging && params.previousPlacement.orderId) {
-        const fillState = await this.tradingEngine.getOrderFillState(params.previousPlacement.orderId);
+        const fillState = await this.tradingEngine.getOrderFillState(
+          params.previousPlacement.orderId,
+        );
         matchedButNotReflected = fillState?.matchedSize ?? 0;
       }
 
       const pendingCoverage = openBuyCoverage + matchedButNotReflected;
-      effectiveMissingAmount = Number(Math.max(0, imbalance.missingAmount - pendingCoverage).toFixed(6));
+      effectiveMissingAmount = Number(
+        Math.max(0, imbalance.missingAmount - pendingCoverage).toFixed(6),
+      );
       if (effectiveMissingAmount <= 1e-6) {
         return {
           status: "unchanged-price",
@@ -1017,13 +1065,16 @@ export class PolymarketBot {
           iterations,
           lastPlacedPrice: params.previousPlacement.price,
           missingLegTokenId: imbalance.missingLegTokenId,
-          reason: "Skipped re-order because pending recovery coverage already satisfies missing amount",
+          reason:
+            "Skipped re-order because pending recovery coverage already satisfies missing amount",
         };
       }
     }
 
     if (!params.previousPlacement) {
-      const recheckedPositions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId).catch(() => null);
+      const recheckedPositions = await this.dataClient
+        .getPositions(params.positionsAddress, params.conditionId)
+        .catch(() => null);
       if (Array.isArray(recheckedPositions)) {
         latestSummary = summarizePositions(recheckedPositions, params.tokenIds);
 
@@ -1040,7 +1091,10 @@ export class PolymarketBot {
         }
 
         const recheckedImbalance = this.getImbalancePlan(latestSummary, params.tokenIds);
-        if (!recheckedImbalance || recheckedImbalance.missingLegTokenId !== imbalance.missingLegTokenId) {
+        if (
+          !recheckedImbalance ||
+          recheckedImbalance.missingLegTokenId !== imbalance.missingLegTokenId
+        ) {
           return {
             status: "not-applicable",
             finalSummary: latestSummary,
@@ -1054,7 +1108,8 @@ export class PolymarketBot {
       }
     }
 
-    const targetMinProfitPerShare = this.config.forceWindowMinProfitPerShare + recoveryPolicy.extraProfitBuffer;
+    const targetMinProfitPerShare =
+      this.config.forceWindowMinProfitPerShare + recoveryPolicy.extraProfitBuffer;
     const maxMissingPrice = this.roundPrice(
       1 - params.filledLegAvgPrice - this.config.forceWindowFeeBuffer - targetMinProfitPerShare,
     );
@@ -1116,10 +1171,14 @@ export class PolymarketBot {
       }
       throw error;
     }
-    const topBids = Array.isArray(top.topBids) && top.topBids.length > 0 ? top.topBids : [top.bestBid];
-    const topAsks = Array.isArray(top.topAsks) && top.topAsks.length > 0 ? top.topAsks : [top.bestAsk];
-    const rawTopBids = Array.isArray(top.rawTopBids) && top.rawTopBids.length > 0 ? top.rawTopBids : topBids;
-    const rawTopAsks = Array.isArray(top.rawTopAsks) && top.rawTopAsks.length > 0 ? top.rawTopAsks : topAsks;
+    const topBids =
+      Array.isArray(top.topBids) && top.topBids.length > 0 ? top.topBids : [top.bestBid];
+    const topAsks =
+      Array.isArray(top.topAsks) && top.topAsks.length > 0 ? top.topAsks : [top.bestAsk];
+    const rawTopBids =
+      Array.isArray(top.rawTopBids) && top.rawTopBids.length > 0 ? top.rawTopBids : topBids;
+    const rawTopAsks =
+      Array.isArray(top.rawTopAsks) && top.rawTopAsks.length > 0 ? top.rawTopAsks : topAsks;
 
     const makerPrice = this.computeMakerMissingLegPrice({
       bestBid: top.bestBid,
@@ -1155,7 +1214,10 @@ export class PolymarketBot {
         }
       | undefined;
 
-    if (params.previousPlacement && params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId) {
+    if (
+      params.previousPlacement &&
+      params.previousPlacement.missingLegTokenId === imbalance.missingLegTokenId
+    ) {
       const elapsedMs = Date.now() - params.previousPlacement.placedAtMs;
       const priceDelta = Math.abs(finalPrice - params.previousPlacement.price);
       repriceContext = {
@@ -1189,7 +1251,8 @@ export class PolymarketBot {
       }
     }
 
-    const expectedLockPnlPerShare = 1 - params.filledLegAvgPrice - finalPrice - this.config.forceWindowFeeBuffer;
+    const expectedLockPnlPerShare =
+      1 - params.filledLegAvgPrice - finalPrice - this.config.forceWindowFeeBuffer;
     if (expectedLockPnlPerShare < targetMinProfitPerShare) {
       return {
         status: "timeout",
@@ -1231,7 +1294,9 @@ export class PolymarketBot {
       };
     }
 
-    const cappedMissingAmount = Number(Math.min(effectiveMissingAmount, remainingForMissingLeg).toFixed(6));
+    const cappedMissingAmount = Number(
+      Math.min(effectiveMissingAmount, remainingForMissingLeg).toFixed(6),
+    );
     if (cappedMissingAmount < PolymarketBot.MIN_MARKET_MAKER_ORDER_SIZE) {
       this.logger.info(
         {
@@ -1299,71 +1364,69 @@ export class PolymarketBot {
       },
       "Missing-leg recovery placement decision context",
     );
-    void this
-      .notify({
-        title: "Missing-leg recovery placement decision",
-        severity: "info",
-        dedupeKey: `missing-leg-recovery-placement:${params.conditionId}:${imbalance.missingLegTokenId}:${finalPrice}:${top.bestBid}:${top.bestAsk}`,
-        slug: params.market.slug,
-        conditionId: params.conditionId,
-        upTokenId: params.tokenIds.upTokenId,
-        downTokenId: params.tokenIds.downTokenId,
-        details: [
-          { key: "missingLegTokenId", value: imbalance.missingLegTokenId },
-          { key: "secondsToClose", value: secondsToClose },
-          { key: "missingAmount", value: imbalance.missingAmount },
-          { key: "effectiveMissingAmount", value: effectiveMissingAmount },
-          { key: "remainingForMissingLeg", value: remainingForMissingLeg },
-          { key: "cappedMissingAmount", value: cappedMissingAmount },
-          { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
-          { key: "targetMinProfitPerShare", value: targetMinProfitPerShare },
-          { key: "expectedLockPnlPerShare", value: expectedLockPnlPerShare },
-          { key: "maxMissingPrice", value: maxMissingPrice },
-          { key: "bestBid", value: top.bestBid },
-          { key: "bestAsk", value: top.bestAsk },
-          { key: "priceSource", value: top.priceSource },
-          { key: "sdkBestBid", value: top.sdkBestBid },
-          { key: "sdkBestAsk", value: top.sdkBestAsk },
-          { key: "rawBid1", value: rawTopBids[0] },
-          { key: "rawBid2", value: rawTopBids[1] },
-          { key: "rawBid3", value: rawTopBids[2] },
-          { key: "rawAsk1", value: rawTopAsks[0] },
-          { key: "rawAsk2", value: rawTopAsks[1] },
-          { key: "rawAsk3", value: rawTopAsks[2] },
-          { key: "bid1", value: topBids[0] },
-          { key: "bid2", value: topBids[1] },
-          { key: "bid3", value: topBids[2] },
-          { key: "ask1", value: topAsks[0] },
-          { key: "ask2", value: topAsks[1] },
-          { key: "ask3", value: topAsks[2] },
-          { key: "spread", value: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)) },
-          { key: "makerPrice", value: makerPrice },
-          { key: "canCrossBestAsk", value: canCrossBestAsk ? "yes" : "no" },
-          { key: "nextPrice", value: nextPrice },
-          { key: "finalPrice", value: finalPrice },
-          { key: "guardTriggered", value: guardTriggered ? "yes" : "no" },
-          { key: "guardThreshold", value: lowPriceGuardThreshold },
-          { key: "fallbackBuffer", value: lowPriceFallbackBuffer },
-          { key: "fallbackPrice", value: fallbackPrice },
-          { key: "topBidAnchoredPrice", value: topBidAnchoredPrice },
-          { key: "anchoredNextPrice", value: anchoredNextPrice },
-          { key: "previousPrice", value: repriceContext?.previousPrice },
-          { key: "priceDelta", value: repriceContext?.priceDelta },
-          { key: "elapsedMs", value: repriceContext?.elapsedMs },
-          { key: "orderPrice", value: finalPrice },
-          { key: "orderSize", value: cappedMissingAmount },
-        ],
-      })
-      .catch((error) => {
-        this.logger.warn(
-          {
-            conditionId: params.conditionId,
-            slug: params.market.slug,
-            error,
-          },
-          "Failed to send missing-leg recovery placement decision telegram notification",
-        );
-      });
+    void this.notify({
+      title: "Missing-leg recovery placement decision",
+      severity: "info",
+      dedupeKey: `missing-leg-recovery-placement:${params.conditionId}:${imbalance.missingLegTokenId}:${finalPrice}:${top.bestBid}:${top.bestAsk}`,
+      slug: params.market.slug,
+      conditionId: params.conditionId,
+      upTokenId: params.tokenIds.upTokenId,
+      downTokenId: params.tokenIds.downTokenId,
+      details: [
+        { key: "missingLegTokenId", value: imbalance.missingLegTokenId },
+        { key: "secondsToClose", value: secondsToClose },
+        { key: "missingAmount", value: imbalance.missingAmount },
+        { key: "effectiveMissingAmount", value: effectiveMissingAmount },
+        { key: "remainingForMissingLeg", value: remainingForMissingLeg },
+        { key: "cappedMissingAmount", value: cappedMissingAmount },
+        { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
+        { key: "targetMinProfitPerShare", value: targetMinProfitPerShare },
+        { key: "expectedLockPnlPerShare", value: expectedLockPnlPerShare },
+        { key: "maxMissingPrice", value: maxMissingPrice },
+        { key: "bestBid", value: top.bestBid },
+        { key: "bestAsk", value: top.bestAsk },
+        { key: "priceSource", value: top.priceSource },
+        { key: "sdkBestBid", value: top.sdkBestBid },
+        { key: "sdkBestAsk", value: top.sdkBestAsk },
+        { key: "rawBid1", value: rawTopBids[0] },
+        { key: "rawBid2", value: rawTopBids[1] },
+        { key: "rawBid3", value: rawTopBids[2] },
+        { key: "rawAsk1", value: rawTopAsks[0] },
+        { key: "rawAsk2", value: rawTopAsks[1] },
+        { key: "rawAsk3", value: rawTopAsks[2] },
+        { key: "bid1", value: topBids[0] },
+        { key: "bid2", value: topBids[1] },
+        { key: "bid3", value: topBids[2] },
+        { key: "ask1", value: topAsks[0] },
+        { key: "ask2", value: topAsks[1] },
+        { key: "ask3", value: topAsks[2] },
+        { key: "spread", value: this.roundPrice(Math.max(0, top.bestAsk - top.bestBid)) },
+        { key: "makerPrice", value: makerPrice },
+        { key: "canCrossBestAsk", value: canCrossBestAsk ? "yes" : "no" },
+        { key: "nextPrice", value: nextPrice },
+        { key: "finalPrice", value: finalPrice },
+        { key: "guardTriggered", value: guardTriggered ? "yes" : "no" },
+        { key: "guardThreshold", value: lowPriceGuardThreshold },
+        { key: "fallbackBuffer", value: lowPriceFallbackBuffer },
+        { key: "fallbackPrice", value: fallbackPrice },
+        { key: "topBidAnchoredPrice", value: topBidAnchoredPrice },
+        { key: "anchoredNextPrice", value: anchoredNextPrice },
+        { key: "previousPrice", value: repriceContext?.previousPrice },
+        { key: "priceDelta", value: repriceContext?.priceDelta },
+        { key: "elapsedMs", value: repriceContext?.elapsedMs },
+        { key: "orderPrice", value: finalPrice },
+        { key: "orderSize", value: cappedMissingAmount },
+      ],
+    }).catch((error) => {
+      this.logger.warn(
+        {
+          conditionId: params.conditionId,
+          slug: params.market.slug,
+          error,
+        },
+        "Failed to send missing-leg recovery placement decision telegram notification",
+      );
+    });
 
     const orderResult = await this.tradingEngine.placeSingleLimitBuyAtPrice(
       imbalance.missingLegTokenId,
@@ -1396,10 +1459,16 @@ export class PolymarketBot {
     secondsToClose: number | null;
     entryPrice: number;
   }): Promise<{ status: "balanced" | "imbalanced" | "failed" }> {
-    const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } = params;
+    const { market, conditionId, positionsAddress, tokenIds, summary, secondsToClose, entryPrice } =
+      params;
     const buyCapacity = this.getConditionBuyCapacity(summary);
-    const missingLegTokenId = summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
-    const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(missingLegTokenId, tokenIds, buyCapacity);
+    const missingLegTokenId =
+      summary.upSize > summary.downSize ? tokenIds.downTokenId : tokenIds.upTokenId;
+    const remainingForMissingLeg = this.getRemainingAllowanceForTokenId(
+      missingLegTokenId,
+      tokenIds,
+      buyCapacity,
+    );
 
     if (remainingForMissingLeg <= this.config.positionEqualityTolerance) {
       const cancelledOpenOrders = await this.tradingEngine.cancelEntryOpenOrders(tokenIds);
@@ -1687,7 +1756,10 @@ export class PolymarketBot {
 
     this.noteCurrentMarketContext(currentConditionId, currentTokenIds);
 
-    const currentPositions = await this.dataClient.getPositions(positionsAddress, currentConditionId);
+    const currentPositions = await this.dataClient.getPositions(
+      positionsAddress,
+      currentConditionId,
+    );
     const currentSummary = summarizePositions(currentPositions, currentTokenIds);
     const positionsEqual = arePositionsEqual(currentSummary, this.config.positionEqualityTolerance);
     const secondsToClose = this.marketDiscovery.getSecondsToMarketClose(currentMarket);
@@ -1695,7 +1767,10 @@ export class PolymarketBot {
 
     const recentPlacement = this.recentRecoveryPlacements.get(currentConditionId);
     if (recentPlacement) {
-      const changedSinceLastPlacement = this.didSummaryChange(recentPlacement.summary, currentSummary);
+      const changedSinceLastPlacement = this.didSummaryChange(
+        recentPlacement.summary,
+        currentSummary,
+      );
       if (positionsEqual) {
         this.recentRecoveryPlacements.delete(currentConditionId);
       } else if (changedSinceLastPlacement) {
@@ -1727,7 +1802,11 @@ export class PolymarketBot {
       "Position check",
     );
 
-    if (positionsEqual && currentSummary.upSize > 0 && !this.balancedOrderCleanupDone.has(currentConditionId)) {
+    if (
+      positionsEqual &&
+      currentSummary.upSize > 0 &&
+      !this.balancedOrderCleanupDone.has(currentConditionId)
+    ) {
       const cleanupOk = await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
         conditionId: currentConditionId,
         path: "tracked-market:balanced-cleanup",
@@ -1760,8 +1839,10 @@ export class PolymarketBot {
 
       const amount = Math.min(currentSummary.upSize, currentSummary.downSize);
       const merge = await this.settlementService.mergeEqualPositions(currentConditionId, amount);
-      const mergeObj = merge && typeof merge === "object" ? (merge as unknown as Record<string, unknown>) : null;
-      const isRateLimitedSkip = mergeObj?.skipped === true && mergeObj?.reason === "relayer_rate_limited";
+      const mergeObj =
+        merge && typeof merge === "object" ? (merge as unknown as Record<string, unknown>) : null;
+      const isRateLimitedSkip =
+        mergeObj?.skipped === true && mergeObj?.reason === "relayer_rate_limited";
 
       if (isRateLimitedSkip) {
         this.logger.warn(
@@ -1823,7 +1904,11 @@ export class PolymarketBot {
       return;
     }
 
-    if (!positionsEqual && secondsToClose !== null && secondsToClose > this.config.forceSellThresholdSeconds) {
+    if (
+      !positionsEqual &&
+      secondsToClose !== null &&
+      secondsToClose > this.config.forceSellThresholdSeconds
+    ) {
       this.transitionConditionLifecycle(currentConditionId, "recovery-pending");
       const placementLock = this.recentRecoveryPlacements.get(currentConditionId);
 
@@ -1957,7 +2042,11 @@ export class PolymarketBot {
       return;
     }
 
-    if (!positionsEqual && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds) {
+    if (
+      !positionsEqual &&
+      secondsToClose !== null &&
+      secondsToClose <= this.config.forceSellThresholdSeconds
+    ) {
       this.transitionConditionLifecycle(currentConditionId, "force-window");
       const recovery = await this.handleForceWindowImbalance({
         market: currentMarket,
@@ -2045,7 +2134,10 @@ export class PolymarketBot {
       "Evaluating entry market",
     );
 
-    const existingPositions = await this.dataClient.getPositions(positionsAddress, entryConditionId);
+    const existingPositions = await this.dataClient.getPositions(
+      positionsAddress,
+      entryConditionId,
+    );
     const existingSummary = summarizePositions(existingPositions, entryTokenIds);
     const buyCapacity = this.getConditionBuyCapacity(existingSummary);
     if (buyCapacity.hasAnyExposure) {
@@ -2094,10 +2186,15 @@ export class PolymarketBot {
       return this.config.loopSleepSeconds;
     }
 
-    const isCurrentMarketEntry = currentConditionId !== null && entryConditionId === currentConditionId;
-    const secondsToClose = isCurrentMarketEntry ? this.marketDiscovery.getSecondsToMarketClose(entryMarket) : null;
+    const isCurrentMarketEntry =
+      currentConditionId !== null && entryConditionId === currentConditionId;
+    const secondsToClose = isCurrentMarketEntry
+      ? this.marketDiscovery.getSecondsToMarketClose(entryMarket)
+      : null;
     const isInsideForceSellWindow =
-      isCurrentMarketEntry && secondsToClose !== null && secondsToClose <= this.config.forceSellThresholdSeconds;
+      isCurrentMarketEntry &&
+      secondsToClose !== null &&
+      secondsToClose <= this.config.forceSellThresholdSeconds;
 
     if (!isCurrentMarketEntry) {
       this.transitionConditionLifecycle(entryConditionId, "entry-pending");
@@ -2139,7 +2236,10 @@ export class PolymarketBot {
     }
 
     const entryPrice = this.config.orderPrice;
-    this.transitionConditionLifecycle(entryConditionId, isInsideForceSellWindow ? "force-window" : "entry-pending");
+    this.transitionConditionLifecycle(
+      entryConditionId,
+      isInsideForceSellWindow ? "force-window" : "entry-pending",
+    );
 
     const paired = await this.tradingEngine.placePairedLimitBuysAtPrice(
       entryTokenIds,
@@ -2447,7 +2547,9 @@ export class PolymarketBot {
                 title: "USDC balance check failed",
                 severity: "error",
                 dedupeKey: `telegram-balance-error:${Math.floor(Date.now() / 5000)}`,
-                details: [{ key: "error", value: error instanceof Error ? error.message : String(error) }],
+                details: [
+                  { key: "error", value: error instanceof Error ? error.message : String(error) },
+                ],
               });
             }
           }
@@ -2472,7 +2574,10 @@ export class PolymarketBot {
 
       try {
         if (this.isSnapshotStale()) {
-          this.logger.warn({ snapshotAgeMs: this.getSnapshotAgeMs() }, "Entry loop skipped: stale market snapshot");
+          this.logger.warn(
+            { snapshotAgeMs: this.getSnapshotAgeMs() },
+            "Entry loop skipped: stale market snapshot",
+          );
           await sleep(this.config.loopSleepSeconds);
           continue;
         }
@@ -2485,7 +2590,9 @@ export class PolymarketBot {
           continue;
         }
 
-        const currentConditionId = currentMarket ? this.marketDiscovery.getConditionId(currentMarket) : null;
+        const currentConditionId = currentMarket
+          ? this.marketDiscovery.getConditionId(currentMarket)
+          : null;
         const entryMarket = this.selectEntryMarket({
           currentMarket,
           nextMarket,
@@ -2515,7 +2622,10 @@ export class PolymarketBot {
           });
 
           if (!locked.executed) {
-            this.logger.debug({ conditionId: entryConditionId }, "Entry loop skipped: condition already in flight");
+            this.logger.debug(
+              { conditionId: entryConditionId },
+              "Entry loop skipped: condition already in flight",
+            );
             sleepSeconds = this.config.loopSleepSeconds;
           } else {
             sleepSeconds = locked.result ?? this.config.loopSleepSeconds;
@@ -2596,7 +2706,10 @@ export class PolymarketBot {
         { key: "redeemMaxRetries", value: this.config.redeemMaxRetries },
         { key: "wsEnabled", value: this.config.enableClobWs ? "true" : "false" },
         { key: "relayerEnabled", value: this.relayerClient.isAvailable() ? "true" : "false" },
-        { key: "availableBuilders", value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none" },
+        {
+          key: "availableBuilders",
+          value: this.relayerClient.getAvailableBuilderLabels().join(", ") || "none",
+        },
       ],
     });
 

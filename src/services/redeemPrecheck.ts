@@ -43,9 +43,7 @@ export interface RedeemPrecheckResult {
 
 export class RedeemPrecheckService {
   private readonly enabled: boolean;
-  private readonly client:
-    | ReturnType<typeof createPublicClient>
-    | null;
+  private readonly client: ReturnType<typeof createPublicClient> | null;
 
   constructor(config: BotConfig) {
     this.enabled = Boolean(config.polygonRpc);

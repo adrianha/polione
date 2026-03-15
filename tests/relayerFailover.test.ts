@@ -96,7 +96,10 @@ describe("relayer failover", () => {
     executeMocks[0].mockRejectedValueOnce(new Error("429 too many requests resets in 30 seconds"));
     executeMocks[1].mockResolvedValueOnce({ txHash: "0xabc" });
 
-    const result = await client.mergeTokens("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1n);
+    const result = await client.mergeTokens(
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      1n,
+    );
 
     expect(executeMocks[0]).toHaveBeenCalledTimes(1);
     expect(executeMocks[1]).toHaveBeenCalledTimes(1);
@@ -118,7 +121,10 @@ describe("relayer failover", () => {
     executeMocks[0].mockRejectedValueOnce(new Error("429 too many requests resets in 2 seconds"));
     executeMocks[1].mockResolvedValueOnce({ txHash: "0xfirst" });
 
-    const first = await client.mergeTokens("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1n);
+    const first = await client.mergeTokens(
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      1n,
+    );
     expect(first).toMatchObject({
       meta: {
         builderLabel: "builder2",
@@ -129,7 +135,10 @@ describe("relayer failover", () => {
     nowSpy.mockReturnValue(3_500);
     executeMocks[0].mockResolvedValueOnce({ txHash: "0xsecond" });
 
-    const second = await client.mergeTokens("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1n);
+    const second = await client.mergeTokens(
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      1n,
+    );
 
     expect(executeMocks[0]).toHaveBeenCalledTimes(2);
     expect(executeMocks[1]).toHaveBeenCalledTimes(1);
@@ -150,7 +159,10 @@ describe("relayer failover", () => {
     executeMocks[0].mockRejectedValueOnce(new Error("429 too many requests resets in 9 seconds"));
     executeMocks[1].mockRejectedValueOnce(new Error("429 too many requests resets in 5 seconds"));
 
-    const result = await client.mergeTokens("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1n);
+    const result = await client.mergeTokens(
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      1n,
+    );
 
     expect(result).toEqual({
       skipped: true,

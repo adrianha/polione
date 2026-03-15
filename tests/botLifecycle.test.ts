@@ -446,13 +446,16 @@ describe("bot lifecycle", () => {
         positionsAddress: "0xabc",
       });
 
-      const placedAfterFirstCall = (bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>).mock
-        .calls.length;
+      const placedAfterFirstCall = (
+        bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>
+      ).mock.calls.length;
 
       expect(first).toBe(baseConfig.loopSleepSeconds);
       expect(second).toBe(baseConfig.loopSleepSeconds);
       expect(placedAfterFirstCall).toBeGreaterThan(0);
-      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(placedAfterFirstCall);
+      expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(
+        placedAfterFirstCall,
+      );
       expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(placedAfterFirstCall);
       expect(bot.trackedMarkets.has("cond-1")).toBe(true);
     } finally {
@@ -462,7 +465,9 @@ describe("bot lifecycle", () => {
 
   it("skips paired entry and tracks market when exposure already exists", async () => {
     const { bot, tempDir } = await createBot();
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 1 }]);
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "up-token", conditionId: "cond-1", size: 1 },
+    ]);
 
     try {
       const sleepSeconds = await bot.processEntryMarket({
@@ -482,7 +487,9 @@ describe("bot lifecycle", () => {
 
   it("allows missing-leg recovery when only the filled leg is at strict cap", async () => {
     const { bot, tempDir } = await createBot();
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 5 }]);
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "up-token", conditionId: "cond-1", size: 5 },
+    ]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
 
     try {
@@ -512,7 +519,9 @@ describe("bot lifecycle", () => {
 
   it("allows force-window hedge buy when only the filled leg is at strict cap", async () => {
     const { bot, tempDir } = await createBot();
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "down-token", conditionId: "cond-1", size: 5 }]);
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "down-token", conditionId: "cond-1", size: 5 },
+    ]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
 
     try {
@@ -590,7 +599,9 @@ describe("bot lifecycle", () => {
 
   it("skips missing-leg reorder when computed recovery price is unchanged", async () => {
     const { bot, tempDir } = await createBot();
-    bot.dataClient.getPositions = vi.fn(async () => [{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.dataClient.getPositions = vi.fn(async () => [
+      { asset: "up-token", conditionId: "cond-1", size: 4 },
+    ]);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
     bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
       bestBid: 0.349,

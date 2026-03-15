@@ -127,7 +127,10 @@ export class TelegramClient {
         return [];
       }
 
-      return payload.result as Array<{ update_id: number; message?: { text?: string; chat?: { id?: number } } }>;
+      return payload.result as Array<{
+        update_id: number;
+        message?: { text?: string; chat?: { id?: number } };
+      }>;
     } catch (error) {
       this.logger.warn({ error }, "Telegram getUpdates error");
       return [];

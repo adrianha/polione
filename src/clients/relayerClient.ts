@@ -141,7 +141,9 @@ export class PolyRelayerClient {
     ];
   }
 
-  private createLocalBuilderConfigs(config: BotConfig): Array<{ label: string; config: BuilderConfig }> {
+  private createLocalBuilderConfigs(
+    config: BotConfig,
+  ): Array<{ label: string; config: BuilderConfig }> {
     const localCreds = [
       {
         label: "builder1",
@@ -180,7 +182,9 @@ export class PolyRelayerClient {
       return [];
     }
 
-    return this.builderEntries.filter((entry) => !this.isRateLimitedNow(entry)).map((entry) => entry.label);
+    return this.builderEntries
+      .filter((entry) => !this.isRateLimitedNow(entry))
+      .map((entry) => entry.label);
   }
 
   private isRateLimitedNow(entry: BuilderEntry): boolean {
@@ -210,7 +214,11 @@ export class PolyRelayerClient {
 
   private isConfirmedRateLimitError(error: unknown): boolean {
     const message = this.formatError(error);
-    return /\b429\b/.test(message) || /too many requests/i.test(message) || /quota exceeded/i.test(message);
+    return (
+      /\b429\b/.test(message) ||
+      /too many requests/i.test(message) ||
+      /quota exceeded/i.test(message)
+    );
   }
 
   private updateRateLimitFromError(entry: BuilderEntry, error: unknown): void {
@@ -244,7 +252,10 @@ export class PolyRelayerClient {
     return Object.assign(result, { meta });
   }
 
-  private async executeWithFailover(txs: Transaction[], note: string): Promise<RelayerExecutableResult> {
+  private async executeWithFailover(
+    txs: Transaction[],
+    note: string,
+  ): Promise<RelayerExecutableResult> {
     if (!this.isAvailable()) {
       return null;
     }
@@ -321,7 +332,10 @@ export class PolyRelayerClient {
     return this.executeWithFailover([tx], "merge tokens");
   }
 
-  async redeemPositions(conditionId: string, indexSets: bigint[] = [1n, 2n]): Promise<RelayerOperationResult> {
+  async redeemPositions(
+    conditionId: string,
+    indexSets: bigint[] = [1n, 2n],
+  ): Promise<RelayerOperationResult> {
     if (!this.isAvailable()) {
       return null;
     }

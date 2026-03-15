@@ -226,7 +226,10 @@ describe("trading engine entry reconciliation", () => {
 
   it("enforces strict condition token context for top of book", async () => {
     const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.3" }],
+        asks: [{ price: "0.31" }],
+      }),
       getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
@@ -248,7 +251,10 @@ describe("trading engine entry reconciliation", () => {
 
   it("enforces strict condition token context for best ask", async () => {
     const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.3" }],
+        asks: [{ price: "0.31" }],
+      }),
       getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),
@@ -320,7 +326,10 @@ describe("trading engine entry reconciliation", () => {
 
   it("rejects empty token ids when fetching top-of-book", async () => {
     const clobClient = {
-      getOrderBook: async (_tokenId: string) => ({ bids: [{ price: "0.3" }], asks: [{ price: "0.31" }] }),
+      getOrderBook: async (_tokenId: string) => ({
+        bids: [{ price: "0.3" }],
+        asks: [{ price: "0.31" }],
+      }),
       getPrice: async (_tokenId: string, _side: "BUY" | "SELL") => 0,
       cancelOpenOrdersForTokenIds: async (_ids: string[]) => [],
       placeMarketOrder: async (_params: unknown) => ({ ok: true }),

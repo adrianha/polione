@@ -38,7 +38,11 @@ describe("state store", () => {
     const stateFilePath = path.join(tempDir, "state.json");
     const store = new StateStore(stateFilePath);
 
-    await writeFile(stateFilePath, `${JSON.stringify({ enteredMarkets: ["cond-a", "cond-b"] }, null, 2)}\n`, "utf8");
+    await writeFile(
+      stateFilePath,
+      `${JSON.stringify({ enteredMarkets: ["cond-a", "cond-b"] }, null, 2)}\n`,
+      "utf8",
+    );
 
     const loaded = await store.loadTrackedMarkets();
     expect(Array.from(loaded).sort()).toEqual(["cond-a", "cond-b"]);

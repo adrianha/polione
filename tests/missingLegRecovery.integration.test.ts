@@ -408,7 +408,9 @@ describe("missing-leg recovery integration", () => {
   it("skips placement when continuous repricing is disabled", async () => {
     const { bot, tempDir } = await createBotHarness({ entryContinuousRepriceEnabled: false });
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
-    bot.dataClient.getPositions = vi.fn().mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
 
     try {
       await bot.processTrackedCurrentMarket({
@@ -427,9 +429,15 @@ describe("missing-leg recovery integration", () => {
   it("switches to force-window hedge flow and balances when profitable", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
-    bot.dataClient.getPositions = vi.fn().mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
     bot.tradingEngine.getBestAskPriceForCondition = vi.fn(async () => 0.5);
-    bot.tradingEngine.completeMissingLegForHedge = vi.fn(async () => ({ tokenId: "down-token", amount: 4, result: { ok: true } }));
+    bot.tradingEngine.completeMissingLegForHedge = vi.fn(async () => ({
+      tokenId: "down-token",
+      amount: 4,
+      result: { ok: true },
+    }));
     bot.tradingEngine.reconcilePairedEntry = vi.fn(async () => ({
       status: "balanced",
       attempts: 1,
@@ -454,7 +462,9 @@ describe("missing-leg recovery integration", () => {
   it("force-window skips hedge when not profitable", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 10);
-    bot.dataClient.getPositions = vi.fn().mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
+    bot.dataClient.getPositions = vi
+      .fn()
+      .mockResolvedValueOnce([{ asset: "up-token", conditionId: "cond-1", size: 4 }]);
     bot.tradingEngine.getBestAskPriceForCondition = vi.fn(async () => 0.7);
 
     try {

@@ -1,4 +1,8 @@
-export const withRetry = async <T>(fn: () => Promise<T>, retries: number, backoffMs: number): Promise<T> => {
+export const withRetry = async <T>(
+  fn: () => Promise<T>,
+  retries: number,
+  backoffMs: number,
+): Promise<T> => {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {

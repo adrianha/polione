@@ -73,7 +73,12 @@ const nextBook = (
   return { mid: nextMid, bid, ask };
 };
 
-const makerPrice = (bid: number, ask: number, maxMissingPrice: number, makerOffset: number): number => {
+const makerPrice = (
+  bid: number,
+  ask: number,
+  maxMissingPrice: number,
+  makerOffset: number,
+): number => {
   const makerCandidate = bid + makerOffset;
   const nonCrossingCap = Math.max(0, ask - makerOffset);
   return round(Math.min(maxMissingPrice, makerCandidate, nonCrossingCap), 4);
@@ -180,7 +185,9 @@ const summarize = (cfg: SimulationConfig): void => {
     : 0;
 
   console.log("=== Continuous Repricing Monte Carlo ===");
-  console.log(`runs=${cfg.runs} orderPrice=${cfg.orderPrice} forceWindow=${cfg.forceWindowSeconds}s`);
+  console.log(
+    `runs=${cfg.runs} orderPrice=${cfg.orderPrice} forceWindow=${cfg.forceWindowSeconds}s`,
+  );
   console.log(
     `maxMissingPrice=${round(1 - cfg.orderPrice - cfg.feeBuffer - cfg.minProfitPerShare, 4)} ` +
       `(feeBuffer=${cfg.feeBuffer}, minProfit=${cfg.minProfitPerShare})`,

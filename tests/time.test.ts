@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getCurrentEpochTimestamp, getNextEpochTimestamp, secondsUntil } from "../src/utils/time.js";
+import {
+  getCurrentEpochTimestamp,
+  getNextEpochTimestamp,
+  secondsUntil,
+} from "../src/utils/time.js";
 
 describe("time utils", () => {
   it("rounds to current and next epoch", () => {

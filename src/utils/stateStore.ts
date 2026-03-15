@@ -18,10 +18,17 @@ const isRedeemStateRecord = (value: unknown): value is RedeemStateRecord => {
   }
 
   const candidate = value as Partial<RedeemStateRecord>;
-  const validStatus = ["pending", "eligible", "submitted", "terminal"].includes(String(candidate.status));
-  const validAttempts = typeof candidate.attempts === "number" && Number.isInteger(candidate.attempts) && candidate.attempts >= 0;
-  const validNextRetryAt = typeof candidate.nextRetryAtMs === "number" && Number.isFinite(candidate.nextRetryAtMs);
-  const validUpdatedAt = typeof candidate.updatedAtMs === "number" && Number.isFinite(candidate.updatedAtMs);
+  const validStatus = ["pending", "eligible", "submitted", "terminal"].includes(
+    String(candidate.status),
+  );
+  const validAttempts =
+    typeof candidate.attempts === "number" &&
+    Number.isInteger(candidate.attempts) &&
+    candidate.attempts >= 0;
+  const validNextRetryAt =
+    typeof candidate.nextRetryAtMs === "number" && Number.isFinite(candidate.nextRetryAtMs);
+  const validUpdatedAt =
+    typeof candidate.updatedAtMs === "number" && Number.isFinite(candidate.updatedAtMs);
 
   return validStatus && validAttempts && validNextRetryAt && validUpdatedAt;
 };
@@ -31,7 +38,11 @@ const normalizeState = (value: unknown): PersistedState => {
     return defaultState();
   }
 
-  const raw = value as { trackedMarkets?: unknown; enteredMarkets?: unknown; redeemStates?: unknown };
+  const raw = value as {
+    trackedMarkets?: unknown;
+    enteredMarkets?: unknown;
+    redeemStates?: unknown;
+  };
   const candidate = Array.isArray(raw.trackedMarkets)
     ? raw.trackedMarkets
     : Array.isArray(raw.enteredMarkets)
@@ -39,7 +50,9 @@ const normalizeState = (value: unknown): PersistedState => {
       : null;
   const redeemStates: Record<string, RedeemStateRecord> = {};
   if (raw.redeemStates && typeof raw.redeemStates === "object") {
-    for (const [conditionId, state] of Object.entries(raw.redeemStates as Record<string, unknown>)) {
+    for (const [conditionId, state] of Object.entries(
+      raw.redeemStates as Record<string, unknown>,
+    )) {
       if (typeof conditionId === "string" && conditionId.length > 0 && isRedeemStateRecord(state)) {
         redeemStates[conditionId] = state;
       }
@@ -53,7 +66,9 @@ const normalizeState = (value: unknown): PersistedState => {
     };
   }
 
-  const trackedMarkets = candidate.filter((item): item is string => typeof item === "string" && item.length > 0);
+  const trackedMarkets = candidate.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
 
   return {
     trackedMarkets: Array.from(new Set(trackedMarkets)),

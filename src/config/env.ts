@@ -11,7 +11,9 @@ const boolString = z
 
 const schema = z.object({
   DRY_RUN: boolString.default(true),
-  PRIVATE_KEY: z.string().regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
+  PRIVATE_KEY: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, "PRIVATE_KEY must be 0x + 64 hex characters"),
   FUNDER: z
     .string()
     .regex(/^0x[a-fA-F0-9]{40}$/)

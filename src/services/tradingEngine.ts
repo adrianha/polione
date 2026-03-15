@@ -25,7 +25,11 @@ export class TradingEngine {
   ) {}
 
   async placePairedLimitBuys(tokenIds: TokenIds): Promise<{ up: unknown; down: unknown }> {
-    return this.placePairedLimitBuysAtPrice(tokenIds, this.config.orderPrice, this.config.orderSize);
+    return this.placePairedLimitBuysAtPrice(
+      tokenIds,
+      this.config.orderPrice,
+      this.config.orderSize,
+    );
   }
 
   async placePairedLimitBuysAtPrice(
@@ -208,8 +212,15 @@ export class TradingEngine {
     return ask > 0 ? ask : Number.POSITIVE_INFINITY;
   }
 
-  private assertTokenInConditionContext(params: { conditionId: string; tokenId: string; tokenIds: TokenIds }): void {
-    if (params.tokenId === params.tokenIds.upTokenId || params.tokenId === params.tokenIds.downTokenId) {
+  private assertTokenInConditionContext(params: {
+    conditionId: string;
+    tokenId: string;
+    tokenIds: TokenIds;
+  }): void {
+    if (
+      params.tokenId === params.tokenIds.upTokenId ||
+      params.tokenId === params.tokenIds.downTokenId
+    ) {
       return;
     }
 
@@ -396,10 +407,16 @@ export class TradingEngine {
 
     const orderRecord = orderPayload as Record<string, unknown>;
     const size = this.parsePositive(
-      orderRecord.size ?? orderRecord.original_size ?? orderRecord.initial_size ?? orderRecord.amount,
+      orderRecord.size ??
+        orderRecord.original_size ??
+        orderRecord.initial_size ??
+        orderRecord.amount,
     );
     const matchedSize = this.parsePositive(
-      orderRecord.size_matched ?? orderRecord.sizeMatched ?? orderRecord.filled_size ?? orderRecord.filledSize,
+      orderRecord.size_matched ??
+        orderRecord.sizeMatched ??
+        orderRecord.filled_size ??
+        orderRecord.filledSize,
     );
     const statusRaw = orderRecord.status;
     const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : null;
@@ -458,7 +475,9 @@ export class TradingEngine {
     const cancelOpenOrders = params.cancelOpenOrders ?? this.config.entryCancelOpenOrders;
     const attempts = Math.max(
       1,
-      Math.ceil(this.config.entryReconcileSeconds / Math.max(1, this.config.entryReconcilePollSeconds)),
+      Math.ceil(
+        this.config.entryReconcileSeconds / Math.max(1, this.config.entryReconcilePollSeconds),
+      ),
     );
 
     let finalSummary = {
@@ -468,11 +487,17 @@ export class TradingEngine {
     };
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const positions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId);
+      const positions = await this.dataClient.getPositions(
+        params.positionsAddress,
+        params.conditionId,
+      );
       finalSummary = summarizePositions(positions, params.tokenIds);
 
       const hasBothLegsFilled = finalSummary.upSize > 0 && finalSummary.downSize > 0;
-      if (hasBothLegsFilled && arePositionsEqual(finalSummary, this.config.positionEqualityTolerance)) {
+      if (
+        hasBothLegsFilled &&
+        arePositionsEqual(finalSummary, this.config.positionEqualityTolerance)
+      ) {
         return {
           status: "balanced",
           attempts: attempt,
@@ -495,7 +520,9 @@ export class TradingEngine {
           params.tokenIds.downTokenId,
         ]);
       } catch (error) {
-        reasons.push(`Cancel open orders failed: ${error instanceof Error ? error.message : String(error)}`);
+        reasons.push(
+          `Cancel open orders failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 

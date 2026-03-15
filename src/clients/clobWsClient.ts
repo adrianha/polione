@@ -151,7 +151,12 @@ export class ClobWsClient {
   }
 
   private handleMessage(raw: unknown): void {
-    const text = typeof raw === "string" ? raw : raw instanceof Uint8Array ? Buffer.from(raw).toString("utf8") : "";
+    const text =
+      typeof raw === "string"
+        ? raw
+        : raw instanceof Uint8Array
+          ? Buffer.from(raw).toString("utf8")
+          : "";
     if (!text || text === "PONG") {
       return;
     }
@@ -180,7 +185,9 @@ export class ClobWsClient {
 
     const record = event as Record<string, unknown>;
     const payload =
-      record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : record;
+      record.data && typeof record.data === "object"
+        ? (record.data as Record<string, unknown>)
+        : record;
 
     const assetId =
       typeof payload.asset_id === "string"
@@ -196,8 +203,12 @@ export class ClobWsClient {
       return;
     }
 
-    const bestBid = parseNumber(payload.best_bid ?? payload.bid ?? payload.price_bid ?? payload.bbo_bid ?? payload.bb);
-    const bestAsk = parseNumber(payload.best_ask ?? payload.ask ?? payload.price_ask ?? payload.bbo_ask ?? payload.ba);
+    const bestBid = parseNumber(
+      payload.best_bid ?? payload.bid ?? payload.price_bid ?? payload.bbo_bid ?? payload.bb,
+    );
+    const bestAsk = parseNumber(
+      payload.best_ask ?? payload.ask ?? payload.price_ask ?? payload.bbo_ask ?? payload.ba,
+    );
     if (bestBid <= 0 || bestAsk <= 0) {
       return;
     }
