@@ -911,6 +911,7 @@ export class PolymarketBot {
   private async runContinuousMissingLegRecovery(params: {
     market: MarketRecord;
     conditionId: string;
+    positionsAddress: string;
     tokenIds: TokenIds;
     currentSummary: PositionSummary;
     filledLegAvgPrice: number;
@@ -963,8 +964,8 @@ export class PolymarketBot {
     }
 
     const recoveryPolicy = this.getTimeAwareRecoveryPolicy(secondsToClose);
-    const latestSummary = params.currentSummary;
-    const buyCapacity = this.getConditionBuyCapacity(latestSummary);
+    let latestSummary = params.currentSummary;
+    let buyCapacity = this.getConditionBuyCapacity(latestSummary);
     if (buyCapacity.reachedCap) {
       return {
         status: "timeout",
@@ -1018,6 +1019,38 @@ export class PolymarketBot {
           missingLegTokenId: imbalance.missingLegTokenId,
           reason: "Skipped re-order because pending recovery coverage already satisfies missing amount",
         };
+      }
+    }
+
+    if (!params.previousPlacement) {
+      const recheckedPositions = await this.dataClient.getPositions(params.positionsAddress, params.conditionId).catch(() => null);
+      if (Array.isArray(recheckedPositions)) {
+        latestSummary = summarizePositions(recheckedPositions, params.tokenIds);
+
+        if (
+          latestSummary.upSize > 0 &&
+          latestSummary.downSize > 0 &&
+          arePositionsEqual(latestSummary, this.config.positionEqualityTolerance)
+        ) {
+          return {
+            status: "balanced",
+            finalSummary: latestSummary,
+            iterations,
+          };
+        }
+
+        const recheckedImbalance = this.getImbalancePlan(latestSummary, params.tokenIds);
+        if (!recheckedImbalance || recheckedImbalance.missingLegTokenId !== imbalance.missingLegTokenId) {
+          return {
+            status: "not-applicable",
+            finalSummary: latestSummary,
+            iterations,
+            reason: "Imbalance changed before first missing-leg recovery placement",
+          };
+        }
+
+        effectiveMissingAmount = Math.min(effectiveMissingAmount, recheckedImbalance.missingAmount);
+        buyCapacity = this.getConditionBuyCapacity(latestSummary);
       }
     }
 
@@ -1792,6 +1825,7 @@ export class PolymarketBot {
       const recovery = await this.runContinuousMissingLegRecovery({
         market: currentMarket,
         conditionId: currentConditionId,
+        positionsAddress,
         tokenIds: currentTokenIds,
         currentSummary,
         filledLegAvgPrice: this.config.orderPrice,
