@@ -138,7 +138,7 @@ export class PolymarketBotV2 {
       notifier,
     );
 
-    const discoveryTask = new DiscoveryTask(marketSnapshotService, notifier, this.logger);
+    const discoveryTask = new DiscoveryTask(marketSnapshotService, this.logger);
     const currentMarketTask = new CurrentMarketTask(
       this.config,
       this.logger,
@@ -148,7 +148,6 @@ export class PolymarketBotV2 {
       trackedMarketState,
       recoveryService,
       conditionLocks,
-      notifier,
       positionsAddress,
     );
     const entryTask = new EntryTask(
@@ -158,10 +157,9 @@ export class PolymarketBotV2 {
       this.marketDiscovery,
       entryService,
       conditionLocks,
-      notifier,
       positionsAddress,
     );
-    const redeemTask = new RedeemTask(redeemService, notifier, this.logger, positionsAddress);
+    const redeemTask = new RedeemTask(redeemService, this.logger, positionsAddress);
     const telegramTask = new TelegramTask(
       this.config,
       this.logger,
@@ -196,11 +194,23 @@ export class PolymarketBotV2 {
       ],
     });
 
+    this.scheduler.setHooks({
+      onTaskError: async (taskName, error) => {
+        await notifier.notifyOperationalIssue({
+          title: `${taskName} task error`,
+          severity: "error",
+          dedupeKey: `task-error:v2:${taskName}`,
+          error,
+        });
+      },
+    });
+
     await marketSnapshotService.refresh();
 
     this.scheduler.register({
       name: "discovery",
       intervalSeconds: this.discoveryIntervalSeconds,
+      startAfterSeconds: this.discoveryIntervalSeconds,
       run: () => discoveryTask.run(),
     });
     this.scheduler.register({
