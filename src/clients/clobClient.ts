@@ -224,7 +224,7 @@ export class PolyClobClient {
     return this.client.getOrderBook(tokenId);
   }
 
-  async getBestBookPriceForSide(tokenId: string, side: "BUY" | "SELL"): Promise<number> {
+  async getPrice(tokenId: string, side: "BUY" | "SELL"): Promise<number> {
     const response = await this.client.getPrice(tokenId, side);
     if (typeof response === "number") {
       return Number.isFinite(response) && response > 0 ? response : 0;

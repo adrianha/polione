@@ -104,7 +104,7 @@ const createBotHarness = async (configOverrides?: Partial<BotConfig>) => {
       orderId: null,
     })),
     getTopOfBook: vi.fn(async () => ({ bestBid: 0.35, bestAsk: 0.36 })),
-    getBestBidAskSnapshotForCondition: vi.fn(async () => ({
+    getTopOfBookForCondition: vi.fn(async () => ({
       bestBid: 0.35,
       bestAsk: 0.36,
       topBids: [0.35, 0.34, 0.33],
@@ -200,7 +200,7 @@ describe("missing-leg recovery integration", () => {
   it("skips best-ask cross when resulting size is below minimum order size", async () => {
     const { bot, tempDir } = await createBotHarness();
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 120);
-    bot.tradingEngine.getBestBidAskSnapshotForCondition = vi.fn(async () => ({
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
       bestBid: 0.01,
       bestAsk: 0.06,
       topBids: [0.01],
@@ -234,7 +234,7 @@ describe("missing-leg recovery integration", () => {
     const { bot, tempDir } = await createBotHarness();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getBestBidAskSnapshotForCondition = vi.fn(async () => ({
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
       bestBid: 0.349,
       bestAsk: 0.351,
       topBids: [0.349, 0.348],
@@ -278,7 +278,7 @@ describe("missing-leg recovery integration", () => {
     const { bot, tempDir } = await createBotHarness();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(2_000_000);
     bot.marketDiscovery.getSecondsToMarketClose = vi.fn(() => 31);
-    bot.tradingEngine.getBestBidAskSnapshotForCondition = vi.fn(async () => ({
+    bot.tradingEngine.getTopOfBookForCondition = vi.fn(async () => ({
       bestBid: 0.349,
       bestAsk: 0.351,
       topBids: [0.349, 0.348],
