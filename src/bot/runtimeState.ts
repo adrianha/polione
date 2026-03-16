@@ -1,6 +1,5 @@
 import type { ConditionLifecycle, ConditionRuntimeState, RecoveryPlacementRecord } from "./marketFlowTypes.js";
-
-type BotLike = any;
+import type { BotDomainContext } from "./botContext.js";
 
 const defaultConditionState = (
   overrides?: Partial<ConditionRuntimeState>,
@@ -15,8 +14,8 @@ const defaultConditionState = (
   ...overrides,
 });
 
-export const getConditionState = (bot: BotLike, conditionId: string): ConditionRuntimeState => {
-  const existing = bot.conditionStates.get(conditionId) as ConditionRuntimeState | undefined;
+export const getConditionState = (bot: BotDomainContext, conditionId: string): ConditionRuntimeState => {
+  const existing = bot.conditionStates.get(conditionId);
   if (existing) {
     return existing;
   }
@@ -27,7 +26,7 @@ export const getConditionState = (bot: BotLike, conditionId: string): ConditionR
 };
 
 export const patchConditionState = (
-  bot: BotLike,
+  bot: BotDomainContext,
   conditionId: string,
   patch: Partial<ConditionRuntimeState>,
 ): ConditionRuntimeState => {
@@ -40,14 +39,14 @@ export const patchConditionState = (
 };
 
 export const transitionConditionLifecycle = (
-  bot: BotLike,
+  bot: BotDomainContext,
   conditionId: string,
   lifecycle: ConditionLifecycle,
 ): void => {
   patchConditionState(bot, conditionId, { lifecycle });
 };
 
-export const markTrackedMarket = async (bot: BotLike, conditionId: string): Promise<void> => {
+export const markTrackedMarket = async (bot: BotDomainContext, conditionId: string): Promise<void> => {
   patchConditionState(bot, conditionId, { tracked: true });
   try {
     await bot.stateStore.saveTrackedMarkets(bot.trackedMarkets);
@@ -71,7 +70,7 @@ export const markTrackedMarket = async (bot: BotLike, conditionId: string): Prom
   }
 };
 
-export const loadPersistedTrackedMarkets = async (bot: BotLike): Promise<void> => {
+export const loadPersistedTrackedMarkets = async (bot: BotDomainContext): Promise<void> => {
   try {
     const [loadedMarkets, loadedRedeemStates] = await Promise.all([
       bot.stateStore.loadTrackedMarkets(),
@@ -80,7 +79,7 @@ export const loadPersistedTrackedMarkets = async (bot: BotLike): Promise<void> =
     for (const conditionId of loadedMarkets as Set<string>) {
       patchConditionState(bot, conditionId, { tracked: true });
     }
-    for (const [conditionId, state] of (loadedRedeemStates as Map<string, unknown>).entries()) {
+    for (const [conditionId, state] of loadedRedeemStates.entries()) {
       bot.redeemStates.set(conditionId, state);
     }
   } catch (error) {
@@ -101,8 +100,8 @@ export const loadPersistedTrackedMarkets = async (bot: BotLike): Promise<void> =
   }
 };
 
-export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
-  const facade: any = {
+export const createTrackedMarketsFacade = (bot: BotDomainContext): Set<string> => {
+  const facade = {
     has(conditionId: string): boolean {
       return Boolean(bot.conditionStates.get(conditionId)?.tracked);
     },
@@ -111,7 +110,7 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
       return facade;
     },
     delete(conditionId: string): boolean {
-      const state = bot.conditionStates.get(conditionId) as ConditionRuntimeState | undefined;
+      const state = bot.conditionStates.get(conditionId);
       if (!state?.tracked) {
         return false;
       }
@@ -119,7 +118,7 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
       return true;
     },
     clear(): void {
-      for (const [conditionId, state] of bot.conditionStates.entries() as Iterable<[string, ConditionRuntimeState]>) {
+      for (const [conditionId, state] of bot.conditionStates.entries()) {
         if (state.tracked) {
           patchConditionState(bot, conditionId, { tracked: false });
         }
@@ -127,7 +126,7 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
     },
     get size(): number {
       let count = 0;
-      for (const state of bot.conditionStates.values() as Iterable<ConditionRuntimeState>) {
+      for (const state of bot.conditionStates.values()) {
         if (state.tracked) {
           count += 1;
         }
@@ -135,11 +134,12 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
       return count;
     },
     *values() {
-      for (const [conditionId, state] of bot.conditionStates.entries() as Iterable<[string, ConditionRuntimeState]>) {
+      for (const [conditionId, state] of bot.conditionStates.entries()) {
         if (state.tracked) {
           yield conditionId;
         }
       }
+      return undefined;
     },
     keys() {
       return facade.values();
@@ -148,6 +148,7 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
       for (const value of facade.values()) {
         yield [value, value] as [string, string];
       }
+      return undefined;
     },
     forEach(callbackfn: (value: string, value2: string, set: Set<string>) => void, thisArg?: unknown): void {
       for (const value of facade.values()) {
@@ -160,11 +161,11 @@ export const createTrackedMarketsFacade = (bot: BotLike): Set<string> => {
     [Symbol.toStringTag]: "Set",
   };
 
-  return facade as Set<string>;
+  return facade as unknown as Set<string>;
 };
 
-export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, RecoveryPlacementRecord> => {
-  const facade: any = {
+export const createRecoveryPlacementsFacade = (bot: BotDomainContext): Map<string, RecoveryPlacementRecord> => {
+  const facade = {
     has(conditionId: string): boolean {
       return bot.conditionStates.get(conditionId)?.recoveryPlacement !== undefined;
     },
@@ -176,7 +177,7 @@ export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, Recove
       return facade;
     },
     delete(conditionId: string): boolean {
-      const state = bot.conditionStates.get(conditionId) as ConditionRuntimeState | undefined;
+      const state = bot.conditionStates.get(conditionId);
       if (!state?.recoveryPlacement) {
         return false;
       }
@@ -184,7 +185,7 @@ export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, Recove
       return true;
     },
     clear(): void {
-      for (const [conditionId, state] of bot.conditionStates.entries() as Iterable<[string, ConditionRuntimeState]>) {
+      for (const [conditionId, state] of bot.conditionStates.entries()) {
         if (state.recoveryPlacement !== undefined) {
           patchConditionState(bot, conditionId, { recoveryPlacement: undefined });
         }
@@ -192,7 +193,7 @@ export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, Recove
     },
     get size(): number {
       let count = 0;
-      for (const state of bot.conditionStates.values() as Iterable<ConditionRuntimeState>) {
+      for (const state of bot.conditionStates.values()) {
         if (state.recoveryPlacement !== undefined) {
           count += 1;
         }
@@ -200,21 +201,24 @@ export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, Recove
       return count;
     },
     *entries() {
-      for (const [conditionId, state] of bot.conditionStates.entries() as Iterable<[string, ConditionRuntimeState]>) {
+      for (const [conditionId, state] of bot.conditionStates.entries()) {
         if (state.recoveryPlacement !== undefined) {
           yield [conditionId, state.recoveryPlacement] as [string, RecoveryPlacementRecord];
         }
       }
+      return undefined;
     },
     *keys() {
       for (const [conditionId] of facade.entries()) {
         yield conditionId;
       }
+      return undefined;
     },
     *values() {
       for (const [, value] of facade.entries()) {
         yield value;
       }
+      return undefined;
     },
     forEach(
       callbackfn: (value: RecoveryPlacementRecord, key: string, map: Map<string, RecoveryPlacementRecord>) => void,
@@ -230,5 +234,5 @@ export const createRecoveryPlacementsFacade = (bot: BotLike): Map<string, Recove
     [Symbol.toStringTag]: "Map",
   };
 
-  return facade as Map<string, RecoveryPlacementRecord>;
+  return facade as unknown as Map<string, RecoveryPlacementRecord>;
 };

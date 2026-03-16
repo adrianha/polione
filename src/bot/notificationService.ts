@@ -1,9 +1,8 @@
 import { escapeHtml, truncateId } from "../clients/telegramClient.js";
-
-type BotLike = any;
+import type { BotDomainContext } from "./botContext.js";
 
 export const formatTelegramMessage = (
-  _bot: BotLike,
+  _bot: BotDomainContext,
   params: {
     title: string;
     severity: "warn" | "error" | "info";
@@ -42,7 +41,7 @@ export const formatTelegramMessage = (
 };
 
 export const notify = async (
-  bot: BotLike,
+  bot: BotDomainContext,
   params: {
     title: string;
     severity: "warn" | "error" | "info";
@@ -59,7 +58,7 @@ export const notify = async (
 };
 
 export const notifyOperationalIssue = async (
-  bot: BotLike,
+  bot: BotDomainContext,
   params: {
     title: string;
     severity: "warn" | "error";
@@ -90,7 +89,7 @@ export const notifyOperationalIssue = async (
 };
 
 export const notifyPlacementSuccessOnce = async (
-  bot: BotLike,
+  bot: BotDomainContext,
   params: {
     conditionId: string;
     slug?: string;
@@ -128,7 +127,7 @@ export const notifyPlacementSuccessOnce = async (
 };
 
 export const notifyEntryFilledOnce = async (
-  bot: BotLike,
+  bot: BotDomainContext,
   params: {
     conditionId: string;
     slug?: string;

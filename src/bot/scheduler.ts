@@ -1,6 +1,5 @@
 import { sleepMs } from "../utils/time.js";
-
-type BotLike = any;
+import type { BotDomainContext } from "./botContext.js";
 
 type ScheduledTask = {
   id: "market" | "redeem" | "telegram";
@@ -9,7 +8,7 @@ type ScheduledTask = {
   run: () => Promise<void>;
 };
 
-export const runScheduler = async (bot: BotLike, positionsAddress: string): Promise<void> => {
+export const runScheduler = async (bot: BotDomainContext, positionsAddress: string): Promise<void> => {
   let nextMarketDelayMs = 0;
   const nowMs = Date.now();
   const tasks: ScheduledTask[] = [
