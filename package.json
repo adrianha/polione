@@ -22,7 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "simulate:repricing": "tsx src/sim/repricingSimulation.ts",
-    "place-orders": "tsx src/scripts/placeEntryOrders.ts",
+    "place-orders": "bun src/scripts/placeEntryOrders.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
