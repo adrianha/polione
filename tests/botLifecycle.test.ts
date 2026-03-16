@@ -28,16 +28,16 @@ const baseConfig: BotConfig = {
   orderSize: 5,
   positionEqualityTolerance: 0.01,
   forceSellThresholdSeconds: 30,
-  loopSleepSeconds: 10,
-  currentLoopSleepSeconds: 3,
-  redeemLoopSleepSeconds: 60,
+  marketPollMs: 10_000,
+  marketUrgentPollMs: 3_000,
+  redeemPollMs: 60_000,
+  telegramPollMs: 10_000,
   redeemEnabled: true,
   redeemMaxRetries: 8,
   redeemRetryBackoffMs: 60_000,
   redeemSuccessCooldownMs: 300_000,
   redeemMaxPerLoop: 20,
   redeemTerminalStateTtlMs: 604_800_000,
-  positionRecheckSeconds: 60,
   entryReconcileSeconds: 1,
   entryReconcilePollSeconds: 1,
   entryCancelOpenOrders: true,
@@ -146,13 +146,13 @@ describe("bot lifecycle", () => {
     const { bot, tempDir } = await createBot();
 
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "different-current",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "entered", conditionId: "cond-1" });
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.reconcilePairedEntry).not.toHaveBeenCalled();
       expect(bot.trackedMarkets.has("cond-1")).toBe(true);
@@ -304,13 +304,13 @@ describe("bot lifecycle", () => {
 
     try {
       bot.notifyEntryFilledOnce = vi.fn(async () => undefined);
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(result).toMatchObject({ outcome: "balanced", conditionId: "cond-1" });
       expect(bot.tradingEngine.reconcilePairedEntry).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalled();
       expect(bot.notifyEntryFilledOnce).toHaveBeenCalledTimes(1);
@@ -328,13 +328,13 @@ describe("bot lifecycle", () => {
       finalSummary: { upSize: 5, downSize: 0, differenceAbs: 5 },
     }));
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
       expect(bot.tradingEngine.getFilledAveragePriceForOrder).not.toHaveBeenCalled();
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
@@ -353,13 +353,13 @@ describe("bot lifecycle", () => {
       finalSummary: { upSize: 5, downSize: 3, differenceAbs: 2 },
     }));
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.cancelEntryOpenOrders).toHaveBeenCalledTimes(1);
     } finally {
@@ -377,13 +377,13 @@ describe("bot lifecycle", () => {
     }));
 
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
       expect(bot.tradingEngine.placeSingleLimitBuyAtPrice).not.toHaveBeenCalled();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -450,8 +450,8 @@ describe("bot lifecycle", () => {
         bot.tradingEngine.placePairedLimitBuysAtPrice as ReturnType<typeof vi.fn>
       ).mock.calls.length;
 
-      expect(first).toBe(baseConfig.loopSleepSeconds);
-      expect(second).toBe(baseConfig.loopSleepSeconds);
+      expect(first).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
+      expect(second).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
       expect(placedAfterFirstCall).toBeGreaterThan(0);
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(
         placedAfterFirstCall,
@@ -470,13 +470,13 @@ describe("bot lifecycle", () => {
     ]);
 
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "recovery-needed", conditionId: "cond-1" });
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).not.toHaveBeenCalled();
       expect(bot.tradingEngine.reconcilePairedEntry).not.toHaveBeenCalled();
       expect(bot.trackedMarkets.has("cond-1")).toBe(true);
@@ -549,13 +549,13 @@ describe("bot lifecycle", () => {
     });
 
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.loopSleepSeconds);
+      expect(result).toMatchObject({ outcome: "failed", conditionId: "cond-1" });
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledWith(
         { upTokenId: "up-token", downTokenId: "down-token" },
@@ -579,13 +579,13 @@ describe("bot lifecycle", () => {
     }));
 
     try {
-      const sleepSeconds = await bot.processEntryMarket({
+      const result = await bot.processEntryMarket({
         entryMarket: market,
         currentConditionId: "cond-1",
         positionsAddress: "0xabc",
       });
 
-      expect(sleepSeconds).toBe(baseConfig.positionRecheckSeconds);
+      expect(result).toMatchObject({ outcome: "balanced", conditionId: "cond-1" });
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledTimes(1);
       expect(bot.tradingEngine.placePairedLimitBuysAtPrice).toHaveBeenCalledWith(
         { upTokenId: "up-token", downTokenId: "down-token" },

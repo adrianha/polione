@@ -87,10 +87,10 @@ Common defaults:
 - `ORDER_SIZE=5`
 - `POSITION_EQUALITY_TOLERANCE=0.01`
 - `FORCE_SELL_THRESHOLD_SECONDS=30`
-- `LOOP_SLEEP_SECONDS=10`
-- `CURRENT_LOOP_SLEEP_SECONDS=3`
-- `REDEEM_LOOP_SLEEP_SECONDS=60`
-- `POSITION_RECHECK_SECONDS=60`
+- `MARKET_POLL_MS=10000`
+- `MARKET_URGENT_POLL_MS=3000`
+- `REDEEM_POLL_MS=60000`
+- `TELEGRAM_POLL_MS=10000`
 - `ENTRY_RECONCILE_SECONDS=15`
 - `ENTRY_RECONCILE_POLL_SECONDS=3`
 - `ENTRY_CANCEL_OPEN_ORDERS=true`
@@ -129,7 +129,7 @@ Optional notifications:
 ## Safety and state
 
 - Dry run returns intents for all write operations (CLOB + relayer).
-- Entered market condition IDs are persisted to `STATE_FILE_PATH`.
+- Tracked market condition IDs are persisted to `STATE_FILE_PATH`.
 - Persisted state prevents multiple paired entries into the same condition across restarts.
 - Direct current-market entries run an immediate entry reconciliation window.
 - If a direct current-market entry remains imbalanced, the bot defers missing-leg recovery to tracked-current processing.

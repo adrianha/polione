@@ -40,14 +40,9 @@ const normalizeState = (value: unknown): PersistedState => {
 
   const raw = value as {
     trackedMarkets?: unknown;
-    enteredMarkets?: unknown;
     redeemStates?: unknown;
   };
-  const candidate = Array.isArray(raw.trackedMarkets)
-    ? raw.trackedMarkets
-    : Array.isArray(raw.enteredMarkets)
-      ? raw.enteredMarkets
-      : null;
+  const candidate = Array.isArray(raw.trackedMarkets) ? raw.trackedMarkets : null;
   const redeemStates: Record<string, RedeemStateRecord> = {};
   if (raw.redeemStates && typeof raw.redeemStates === "object") {
     for (const [conditionId, state] of Object.entries(

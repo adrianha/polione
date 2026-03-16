@@ -2,6 +2,10 @@ export const sleep = async (seconds: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 };
 
+export const sleepMs = async (milliseconds: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+};
+
 export const unixNow = (): number => Math.floor(Date.now() / 1000);
 
 export const getNextEpochTimestamp = (nowSec: number, intervalSeconds: number): number => {

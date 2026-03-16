@@ -17,16 +17,14 @@ Construct bot + clients/services (src/bot.ts)
 Init CLOB credentials (clobClient.init)
   |
   v
-Load persisted entered market state (STATE_FILE_PATH)
+Load persisted tracked market state (STATE_FILE_PATH)
   |
   v
-MAIN LOOP (until stop signal)
+SCHEDULER LOOP (until stop signal)
   |
-  +--> Discover current market + next market
+  +--> Run market task
   |      - findCurrentActiveMarket()
   |      - findNextActiveMarket()
-  |
-  +--> If no market found: sleep LOOP_SLEEP_SECONDS, continue
   |
   +--> If current market is a tracked market:
   |      - fetch positions for current condition
@@ -51,11 +49,13 @@ MAIN LOOP (until stop signal)
   |      - direct current-market entry: reconcile fills for ENTRY_RECONCILE_SECONDS
   |      - if direct current-market entry stays imbalanced: defer missing-leg recovery to tracked-current loop
   |      - final current-market fallback near close: optional profitable hedge, else flatten exposure
-  |      - if balanced: persist tracked condition ID, sleep POSITION_RECHECK_SECONDS
+  |      - if balanced: persist tracked condition ID and keep urgent market cadence
   |
-  +--> On skip or loop-level error: sleep LOOP_SLEEP_SECONDS
+  +--> Optional scheduled tasks:
+  |      - redeem task
+  |      - telegram task
   |
-  `--> repeat
+  `--> sleep until next due task
 ```
 
 ## Phase details
@@ -68,14 +68,14 @@ MAIN LOOP (until stop signal)
 - `src/bot.ts` resolves addresses:
   - signer address from CLOB wallet
   - positions address = `FUNDER` when provided, otherwise signer address
-- `src/bot.ts` loads persisted entered market condition IDs from `STATE_FILE_PATH`.
+- `src/bot.ts` loads persisted tracked market condition IDs from `STATE_FILE_PATH`.
 
 ### 2) Market discovery
 
 - `src/services/marketDiscovery.ts` is used each cycle to find:
   - current active market for current epoch
   - next active market (next epoch first, then current fallback)
-- If both are missing, the bot logs and sleeps `LOOP_SLEEP_SECONDS`.
+- If both are missing, the market task logs a warning and the scheduler retries on the normal market cadence.
 - `src/clients/clobWsClient.ts` maintains best bid/ask quote cache from CLOB market websocket.
 - Trading reads websocket quotes when fresh (`WS_QUOTES_MAX_AGE_MS`) and falls back to REST order books when stale/unavailable.
 
@@ -105,7 +105,7 @@ This block runs only when the current market condition is already in the tracked
 - Required market metadata checks:
   - token IDs must exist
   - condition ID must exist
-- Skip if condition already exists in persisted entered state.
+- Skip if condition already exists in persisted tracked state.
 
 Exposure guard before placing new paired orders:
 
@@ -122,7 +122,7 @@ Balance guard before placing new paired orders:
 If all guards pass for a next-market entry:
 
 - Place paired limit BUY orders for UP and DOWN via `TradingEngine.placePairedLimitBuys(...)`.
-- Persist condition ID in entered market state (`STATE_FILE_PATH`) immediately.
+- Persist condition ID in tracked market state (`STATE_FILE_PATH`) immediately.
 - Do not reconcile, reprice, cancel, hedge, or flatten while the market is still next.
 - Recovery is deferred until that condition becomes current and is handled by the current-market management loop.
 
@@ -139,17 +139,16 @@ If all guards pass for a direct current-market entry:
   - if profitable, complete missing leg and re-check balance,
   - if not profitable (or still imbalanced), flatten filled exposure.
 - If balanced within tolerance:
-  - Persist condition ID in entered market state (`STATE_FILE_PATH`).
-  - Sleep `POSITION_RECHECK_SECONDS`.
+- Persist condition ID in tracked market state (`STATE_FILE_PATH`).
+  - Keep urgent market cadence.
 - If reconciliation remains imbalanced at timeout:
   - Keep residual exposure and emit imbalance warning/notification.
-  - Do not persist entered condition ID for that cycle; recovery is handled later by tracked-current processing.
+- Do not persist a new tracked condition for that cycle; recovery is handled later by tracked-current processing.
 
-### 5) Loop error handling and retry behavior
+### 5) Scheduled task error handling and retry behavior
 
-- Loop body is wrapped in `try/catch`.
-- Any loop-level error is logged; process continues after sleeping `LOOP_SLEEP_SECONDS`.
-- Current entered-market management loop runs on `CURRENT_LOOP_SLEEP_SECONDS` cadence.
+- Each scheduled task is wrapped in `try/catch`.
+- Market cadence is centralized via `computeNextMarketInterval()` using task outcomes, tracked exposure, and time-to-close urgency.
 - HTTP/API call retries use configurable retry settings:
   - `REQUEST_RETRIES`
   - `REQUEST_RETRY_BACKOFF_MS`
@@ -176,11 +175,11 @@ If all guards pass for a direct current-market entry:
 
 ## State persistence
 
-- Entered market condition IDs are persisted in `STATE_FILE_PATH`.
+- Tracked market condition IDs are persisted in `STATE_FILE_PATH`.
 - On startup, state is reloaded to avoid duplicate paired entries after restart.
 
 ## Notes on behavior differences from older docs
 
 - No hard process stop on low USDC; entry is skipped and loop continues.
-- Sleep durations are config-driven (`LOOP_SLEEP_SECONDS`, `POSITION_RECHECK_SECONDS`), not fixed constants in docs.
-- Current implementation uses one global cycle with guard checks, not a separate nested perpetual per-market monitor loop.
+- Scheduler cadence is config-driven (`MARKET_POLL_MS`, `MARKET_URGENT_POLL_MS`, `REDEEM_POLL_MS`, `TELEGRAM_POLL_MS`).
+- Current implementation uses one scheduler with a market task and optional redeem/telegram tasks.
