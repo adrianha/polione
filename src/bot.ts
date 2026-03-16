@@ -8,7 +8,7 @@ import type {
 } from "./types/domain.js";
 import { GammaClient } from "./clients/gammaClient.js";
 import { PolyClobClient } from "./clients/clobClient.js";
-import { TelegramClient, escapeHtml, truncateId } from "./clients/telegramClient.js";
+import { TelegramClient } from "./clients/telegramClient.js";
 import { PolyRelayerClient } from "./clients/relayerClient.js";
 import { DataClient } from "./clients/dataClient.js";
 import { MarketDiscoveryService } from "./services/marketDiscovery.js";
@@ -26,10 +26,6 @@ import {
   type MarketTaskSignal,
   type RecoveryPlacementRecord,
 } from "./bot/marketFlowTypes.js";
-import {
-  MERGE_BALANCE_CONFIRMATION_CHECKS,
-  MIN_MARKET_MAKER_ORDER_SIZE,
-} from "./bot/recoveryMath.js";
 import {
   processEntryMarket as processEntryMarketFlow,
   selectEntryMarket as selectEntryMarketFlow,
