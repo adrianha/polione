@@ -19,90 +19,54 @@ import { SettlementService } from "./services/settlement.js";
 import { RedeemPrecheckService } from "./services/redeemPrecheck.js";
 import { arePositionsEqual, summarizePositions } from "./services/positionManager.js";
 import { StateStore } from "./utils/stateStore.js";
-import { sleepMs } from "./utils/time.js";
-
-type ConditionLifecycle =
-  | "new"
-  | "entry-pending"
-  | "recovery-pending"
-  | "force-window"
-  | "balanced"
-  | "terminal";
-
-type EntryOpportunityOutcome =
-  | "idle"
-  | "entered"
-  | "balanced"
-  | "recovery-needed"
-  | "force-window"
-  | "failed";
-
-type CurrentMarketOutcome =
-  | "idle"
-  | "balanced"
-  | "recovery-needed"
-  | "recovery-placed"
-  | "force-window"
-  | "failed";
-
-type MarketTaskOutcome =
-  | "idle"
-  | "entered"
-  | "balanced"
-  | "recovery-needed"
-  | "recovery-placed"
-  | "force-window"
-  | "failed";
-
-type EntryOpportunityResult = {
-  outcome: EntryOpportunityOutcome;
-  conditionId?: string;
-  secondsToClose: number | null;
-};
-
-type CurrentMarketResult = {
-  outcome: CurrentMarketOutcome;
-  hasTrackedExposure: boolean;
-  secondsToClose: number | null;
-};
-
-type MarketTaskSignal = {
-  outcome: MarketTaskOutcome;
-  hasTrackedExposure: boolean;
-  secondsToClose: number | null;
-};
-
-type MarketContext = {
-  currentMarket: MarketRecord | null;
-  nextMarket: MarketRecord | null;
-  currentConditionId: string | null;
-};
+import {
+  type ConditionLifecycle,
+  type ConditionRuntimeState,
+  type CurrentMarketResult,
+  type EntryOpportunityResult,
+  type MarketContext,
+  type MarketTaskOutcome,
+  type MarketTaskSignal,
+  type RecoveryPlacementRecord,
+} from "./bot/marketFlowTypes.js";
+import {
+  MERGE_BALANCE_CONFIRMATION_CHECKS,
+  MIN_MARKET_MAKER_ORDER_SIZE,
+} from "./bot/recoveryMath.js";
+import {
+  processEntryMarket as processEntryMarketFlow,
+  selectEntryMarket as selectEntryMarketFlow,
+} from "./bot/entryFlow.js";
+import { processRedeemablePositions as processRedeemablePositionsFlow } from "./bot/redeemFlow.js";
+import {
+  processTrackedCurrentMarket as processTrackedCurrentMarketFlow,
+} from "./bot/trackedMarketFlow.js";
+import { hasAnyFill } from "./bot/recoveryMath.js";
+import {
+  formatTelegramMessage as formatTelegramMessageFlow,
+  notify as notifyFlow,
+  notifyEntryFilledOnce as notifyEntryFilledOnceFlow,
+  notifyOperationalIssue as notifyOperationalIssueFlow,
+  notifyPlacementSuccessOnce as notifyPlacementSuccessOnceFlow,
+} from "./bot/notificationService.js";
+import { runScheduler } from "./bot/scheduler.js";
+import {
+  createRecoveryPlacementsFacade,
+  createTrackedMarketsFacade,
+  getConditionState as getConditionStateFlow,
+  loadPersistedTrackedMarkets as loadPersistedTrackedMarketsFlow,
+  markTrackedMarket as markTrackedMarketFlow,
+  patchConditionState as patchConditionStateFlow,
+  transitionConditionLifecycle as transitionConditionLifecycleFlow,
+} from "./bot/runtimeState.js";
 
 export class PolymarketBot {
-  private static readonly MERGE_BALANCE_CONFIRMATION_CHECKS = 2;
-  private static readonly MIN_MARKET_MAKER_ORDER_SIZE = 5;
-
   private stopped = false;
-  private readonly trackedMarkets = new Set<string>();
-  private readonly notifiedPlacementSuccess = new Set<string>();
-  private readonly mergeAttemptedMarkets = new Set<string>();
+  private readonly conditionStates = new Map<string, ConditionRuntimeState>();
+  private readonly trackedMarkets = createTrackedMarketsFacade(this);
   private readonly redeemStates = new Map<string, RedeemStateRecord>();
-  private readonly balancedOrderCleanupDone = new Set<string>();
-  private readonly balancedChecksByCondition = new Map<string, number>();
-  private readonly recentRecoveryPlacements = new Map<
-    string,
-    {
-      placedAtMs: number;
-      summary: PositionSummary;
-      missingLegTokenId: string;
-      price: number;
-      placedSize: number;
-      orderId: string | null;
-    }
-  >();
+  private readonly recentRecoveryPlacements = createRecoveryPlacementsFacade(this);
   private readonly inFlightConditions = new Set<string>();
-  private readonly notifiedEntryFilled = new Set<string>();
-  private readonly conditionLifecycle = new Map<string, ConditionLifecycle>();
   private relayerFailoverActive = false;
 
   private readonly gammaClient: GammaClient;
@@ -148,33 +112,7 @@ export class PolymarketBot {
     downTokenId?: string;
     details: Array<{ key: string; value: string | number | null | undefined }>;
   }): string {
-    const icon = params.severity === "error" ? "❌" : params.severity === "warn" ? "⚠️" : "✅";
-    const lines = [`<b>${icon} ${escapeHtml(params.title)}</b>`];
-
-    if (params.slug) {
-      lines.push(`<b>Market</b>: <code>${escapeHtml(params.slug)}</code>`);
-    }
-    if (params.conditionId) {
-      lines.push(`<b>Condition</b>: <code>${escapeHtml(truncateId(params.conditionId))}</code>`);
-    }
-    if (params.upTokenId || params.downTokenId) {
-      lines.push(
-        `<b>Tokens</b>: UP <code>${escapeHtml(truncateId(params.upTokenId ?? "-"))}</code> | DOWN <code>${escapeHtml(
-          truncateId(params.downTokenId ?? "-"),
-        )}</code>`,
-      );
-    }
-
-    for (const detail of params.details) {
-      if (detail.value === null || detail.value === undefined || detail.value === "") {
-        continue;
-      }
-      lines.push(
-        `<b>${escapeHtml(detail.key)}</b>: <code>${escapeHtml(String(detail.value))}</code>`,
-      );
-    }
-
-    return lines.join("\n");
+    return formatTelegramMessageFlow(this, params);
   }
 
   private async notify(params: {
@@ -187,16 +125,7 @@ export class PolymarketBot {
     downTokenId?: string;
     details: Array<{ key: string; value: string | number | null | undefined }>;
   }): Promise<void> {
-    const message = this.formatTelegramMessage({
-      title: params.title,
-      severity: params.severity,
-      slug: params.slug,
-      conditionId: params.conditionId,
-      upTokenId: params.upTokenId,
-      downTokenId: params.downTokenId,
-      details: params.details,
-    });
-    await this.telegramClient.sendHtml(message, params.dedupeKey);
+    await notifyFlow(this, params);
   }
 
   private async notifyOperationalIssue(params: {
@@ -210,21 +139,7 @@ export class PolymarketBot {
     error?: unknown;
     details?: Array<{ key: string; value: string | number | null | undefined }>;
   }): Promise<void> {
-    const details = [...(params.details ?? [])];
-    if (params.error !== undefined) {
-      details.push({ key: "error", value: this.normalizeError(params.error) });
-    }
-
-    await this.notify({
-      title: params.title,
-      severity: params.severity,
-      dedupeKey: params.dedupeKey,
-      slug: params.slug,
-      conditionId: params.conditionId,
-      upTokenId: params.upTokenId,
-      downTokenId: params.downTokenId,
-      details,
-    });
+    await notifyOperationalIssueFlow(this, params);
   }
 
   private async notifyPlacementSuccessOnce(params: {
@@ -238,27 +153,7 @@ export class PolymarketBot {
     secondsToClose?: number | null;
     mode: "current-market" | "non-current-market";
   }): Promise<void> {
-    if (this.notifiedPlacementSuccess.has(params.conditionId)) {
-      return;
-    }
-
-    this.notifiedPlacementSuccess.add(params.conditionId);
-    await this.notify({
-      title: "Paired limit orders placed",
-      severity: "info",
-      dedupeKey: `placement-success:${params.conditionId}`,
-      slug: params.slug,
-      conditionId: params.conditionId,
-      upTokenId: params.upTokenId,
-      downTokenId: params.downTokenId,
-      details: [
-        { key: "entryPrice", value: params.entryPrice },
-        { key: "orderSize", value: params.orderSize },
-        { key: "attempt", value: params.attempt },
-        { key: "secondsToClose", value: params.secondsToClose },
-        { key: "mode", value: params.mode },
-      ],
-    });
+    await notifyPlacementSuccessOnceFlow(this, params);
   }
 
   private async notifyEntryFilledOnce(params: {
@@ -272,27 +167,7 @@ export class PolymarketBot {
     filledLegAvgPrice?: number;
     mode: "reconcile" | "continuous-recovery" | "force-window";
   }): Promise<void> {
-    if (this.notifiedEntryFilled.has(params.conditionId)) {
-      return;
-    }
-
-    this.notifiedEntryFilled.add(params.conditionId);
-    await this.notify({
-      title: "Entry filled and balanced",
-      severity: "info",
-      dedupeKey: `entry-filled:${params.conditionId}`,
-      slug: params.slug,
-      conditionId: params.conditionId,
-      upTokenId: params.upTokenId,
-      downTokenId: params.downTokenId,
-      details: [
-        { key: "up", value: params.upSize },
-        { key: "down", value: params.downSize },
-        { key: "entryPrice", value: params.entryPrice },
-        { key: "filledLegAvgPrice", value: params.filledLegAvgPrice },
-        { key: "mode", value: params.mode },
-      ],
-    });
+    await notifyEntryFilledOnceFlow(this, params);
   }
 
   private async cancelEntryOrdersAfterBalance(
@@ -323,6 +198,69 @@ export class PolymarketBot {
       });
       return false;
     }
+  }
+
+  private noteCurrentMarketContext(conditionId: string, tokenIds: TokenIds): void {
+    this.noteCurrentMarketContextCore(conditionId, tokenIds);
+  }
+
+  private getConditionState(conditionId: string): ConditionRuntimeState {
+    return getConditionStateFlow(this, conditionId);
+  }
+
+  private patchConditionState(
+    conditionId: string,
+    patch: Partial<ConditionRuntimeState>,
+  ): ConditionRuntimeState {
+    return patchConditionStateFlow(this, conditionId, patch);
+  }
+
+  private async runContinuousMissingLegRecovery(params: {
+    market: MarketRecord;
+    conditionId: string;
+    positionsAddress: string;
+    tokenIds: TokenIds;
+    currentSummary: PositionSummary;
+    filledLegAvgPrice: number;
+    previousPlacement?: RecoveryPlacementRecord;
+  }): Promise<any> {
+    return this.runContinuousMissingLegRecoveryCore(params);
+  }
+
+  private async handleForceWindowImbalance(params: {
+    market: MarketRecord;
+    conditionId: string;
+    positionsAddress: string;
+    tokenIds: TokenIds;
+    summary: PositionSummary;
+    secondsToClose: number | null;
+    entryPrice: number;
+  }): Promise<{ status: "balanced" | "imbalanced" | "failed" }> {
+    return this.handleForceWindowImbalanceCore(params);
+  }
+
+  private async processTrackedCurrentMarket(params: {
+    currentMarket: MarketRecord;
+    currentConditionId: string;
+    positionsAddress: string;
+  }): Promise<CurrentMarketResult> {
+    return processTrackedCurrentMarketFlow(this, params);
+  }
+
+  private selectEntryMarket(params: MarketContext): MarketRecord | null {
+    return selectEntryMarketFlow(this, params);
+  }
+
+  private async processEntryMarket(params: {
+    entryMarket: MarketRecord;
+    currentConditionId: string | null;
+    positionsAddress: string;
+  }): Promise<EntryOpportunityResult> {
+    return processEntryMarketFlow(this, params);
+  }
+
+  private async processRedeemablePositions(positionsAddress: string): Promise<void> {
+    return processRedeemablePositionsFlow(this, positionsAddress);
   }
 
   private getRelayerMeta(result: unknown): { builderLabel?: string; failoverFrom?: string } | null {
@@ -538,7 +476,7 @@ export class PolymarketBot {
     );
   }
 
-  private async processRedeemablePositions(positionsAddress: string): Promise<void> {
+  private async processRedeemablePositionsCore(positionsAddress: string): Promise<void> {
     if (!this.config.redeemEnabled || !this.relayerClient.isAvailable()) {
       return;
     }
@@ -734,31 +672,11 @@ export class PolymarketBot {
   }
 
   private async markTrackedMarket(conditionId: string): Promise<void> {
-    this.trackedMarkets.add(conditionId);
-    try {
-      await this.stateStore.saveTrackedMarkets(this.trackedMarkets);
-    } catch (error) {
-      this.logger.error(
-        {
-          error,
-          stateFilePath: this.config.stateFilePath,
-          conditionId,
-        },
-        "Failed to persist tracked market state",
-      );
-      await this.notifyOperationalIssue({
-        title: "Failed to persist tracked market",
-        severity: "error",
-        dedupeKey: `persist-tracked-market:${conditionId}`,
-        conditionId,
-        error,
-        details: [{ key: "stateFilePath", value: this.config.stateFilePath }],
-      });
-    }
+    await markTrackedMarketFlow(this, conditionId);
   }
 
   private transitionConditionLifecycle(conditionId: string, state: ConditionLifecycle): void {
-    this.conditionLifecycle.set(conditionId, state);
+    transitionConditionLifecycleFlow(this, conditionId, state);
   }
 
   stop(): void {
@@ -941,7 +859,7 @@ export class PolymarketBot {
     );
   }
 
-  private noteCurrentMarketContext(conditionId: string, tokenIds: TokenIds): void {
+  private noteCurrentMarketContextCore(conditionId: string, tokenIds: TokenIds): void {
     if (this.activeCurrentConditionId === conditionId) {
       this.activeCurrentTokenIds = tokenIds;
       return;
@@ -966,7 +884,7 @@ export class PolymarketBot {
     );
   }
 
-  private async runContinuousMissingLegRecovery(params: {
+  private async runContinuousMissingLegRecoveryCore(params: {
     market: MarketRecord;
     conditionId: string;
     positionsAddress: string;
@@ -1325,7 +1243,7 @@ export class PolymarketBot {
     const cappedMissingAmount = Number(
       Math.min(effectiveMissingAmount, remainingForMissingLeg).toFixed(6),
     );
-    if (cappedMissingAmount < PolymarketBot.MIN_MARKET_MAKER_ORDER_SIZE) {
+    if (cappedMissingAmount < MIN_MARKET_MAKER_ORDER_SIZE) {
       this.logger.info(
         {
           conditionId: params.conditionId,
@@ -1478,7 +1396,7 @@ export class PolymarketBot {
     };
   }
 
-  private async handleForceWindowImbalance(params: {
+  private async handleForceWindowImbalanceCore(params: {
     market: MarketRecord;
     conditionId: string;
     positionsAddress: string;
@@ -1730,36 +1648,10 @@ export class PolymarketBot {
   }
 
   private async loadPersistedTrackedMarkets(): Promise<void> {
-    try {
-      const [loadedMarkets, loadedRedeemStates] = await Promise.all([
-        this.stateStore.loadTrackedMarkets(),
-        this.stateStore.loadRedeemStates(),
-      ]);
-      for (const conditionId of loadedMarkets) {
-        this.trackedMarkets.add(conditionId);
-      }
-      for (const [conditionId, state] of loadedRedeemStates.entries()) {
-        this.redeemStates.set(conditionId, state);
-      }
-    } catch (error) {
-      this.logger.error(
-        {
-          error,
-          stateFilePath: this.config.stateFilePath,
-        },
-        "Failed to load persisted bot state",
-      );
-      await this.notifyOperationalIssue({
-        title: "Failed to load persisted bot state",
-        severity: "error",
-        dedupeKey: `load-bot-state:${this.config.stateFilePath}`,
-        error,
-        details: [{ key: "stateFilePath", value: this.config.stateFilePath }],
-      });
-    }
+    await loadPersistedTrackedMarketsFlow(this);
   }
 
-  private async processTrackedCurrentMarket(params: {
+  private async processTrackedCurrentMarketCore(params: {
     currentMarket: MarketRecord;
     currentConditionId: string;
     positionsAddress: string;
@@ -1809,12 +1701,16 @@ export class PolymarketBot {
       }
     }
 
+    const currentState = this.getConditionState(currentConditionId);
     if (!positionsEqual) {
-      this.balancedOrderCleanupDone.delete(currentConditionId);
-      this.balancedChecksByCondition.delete(currentConditionId);
-    } else if (this.hasAnyFill(currentSummary)) {
-      const confirmations = (this.balancedChecksByCondition.get(currentConditionId) ?? 0) + 1;
-      this.balancedChecksByCondition.set(currentConditionId, confirmations);
+      this.patchConditionState(currentConditionId, {
+        balancedCleanupDone: false,
+        balancedChecks: 0,
+      });
+    } else if (hasAnyFill(currentSummary)) {
+      this.patchConditionState(currentConditionId, {
+        balancedChecks: currentState.balancedChecks + 1,
+      });
     }
 
     this.logger.debug(
@@ -1830,19 +1726,19 @@ export class PolymarketBot {
       "Position check",
     );
 
-    const hasTrackedExposure = this.hasAnyFill(currentSummary);
+    const hasTrackedExposure = hasAnyFill(currentSummary);
 
     if (
       positionsEqual &&
       currentSummary.upSize > 0 &&
-      !this.balancedOrderCleanupDone.has(currentConditionId)
+      !this.getConditionState(currentConditionId).balancedCleanupDone
     ) {
       const cleanupOk = await this.cancelEntryOrdersAfterBalance(currentTokenIds, {
         conditionId: currentConditionId,
         path: "tracked-market:balanced-cleanup",
       });
       if (cleanupOk) {
-        this.balancedOrderCleanupDone.add(currentConditionId);
+        this.patchConditionState(currentConditionId, { balancedCleanupDone: true });
       }
     }
 
@@ -1850,16 +1746,16 @@ export class PolymarketBot {
       positionsEqual &&
       currentSummary.upSize > 0 &&
       this.relayerClient.isAvailable() &&
-      !this.mergeAttemptedMarkets.has(currentConditionId)
+      !this.getConditionState(currentConditionId).mergeAttempted
     ) {
-      const balancedChecks = this.balancedChecksByCondition.get(currentConditionId) ?? 0;
-      if (balancedChecks < PolymarketBot.MERGE_BALANCE_CONFIRMATION_CHECKS) {
+      const balancedChecks = this.getConditionState(currentConditionId).balancedChecks;
+      if (balancedChecks < MERGE_BALANCE_CONFIRMATION_CHECKS) {
         this.logger.info(
           {
             conditionId: currentConditionId,
             slug: currentMarket.slug,
             balancedChecks,
-            requiredChecks: PolymarketBot.MERGE_BALANCE_CONFIRMATION_CHECKS,
+            requiredChecks: MERGE_BALANCE_CONFIRMATION_CHECKS,
             secondsToClose,
           },
           "Delaying merge until balance is stable across consecutive checks",
@@ -1907,7 +1803,7 @@ export class PolymarketBot {
         downTokenId: currentTokenIds.downTokenId,
       });
 
-      this.mergeAttemptedMarkets.add(currentConditionId);
+      this.patchConditionState(currentConditionId, { mergeAttempted: true });
       this.logger.info(
         {
           merge,
@@ -2110,7 +2006,7 @@ export class PolymarketBot {
     return { outcome: positionsEqual ? "balanced" : "idle", hasTrackedExposure, secondsToClose };
   }
 
-  private selectEntryMarket(params: {
+  private selectEntryMarketCore(params: {
     currentMarket: MarketRecord | null;
     nextMarket: MarketRecord | null;
     currentConditionId: string | null;
@@ -2127,7 +2023,7 @@ export class PolymarketBot {
     return currentMarket;
   }
 
-  private async processEntryMarket(params: {
+  private async processEntryMarketCore(params: {
     entryMarket: MarketRecord;
     currentConditionId: string | null;
     positionsAddress: string;
@@ -2735,74 +2631,7 @@ export class PolymarketBot {
       ],
     });
 
-    type ScheduledTask = {
-      id: "market" | "redeem" | "telegram";
-      intervalMs: number;
-      nextRunAtMs: number;
-      run: () => Promise<void>;
-    };
-
-    let nextMarketDelayMs = 0;
-    const nowMs = Date.now();
-    const tasks: ScheduledTask[] = [
-      {
-        id: "market",
-        intervalMs: this.config.marketPollMs,
-        nextRunAtMs: nowMs,
-        run: async () => {
-          try {
-            const signal = await this.runMarketTask(positionsAddress);
-            nextMarketDelayMs = this.computeNextMarketInterval(signal);
-          } catch (error) {
-            nextMarketDelayMs = this.config.marketPollMs;
-            this.logger.error({ error }, "Market task error");
-            await this.notifyOperationalIssue({
-              title: "Market task error",
-              severity: "error",
-              dedupeKey: "task-error:market",
-              error,
-            });
-          }
-        },
-      },
-    ];
-
-    if (this.config.redeemEnabled && this.relayerClient.isAvailable()) {
-      tasks.push({
-        id: "redeem",
-        intervalMs: this.config.redeemPollMs,
-        nextRunAtMs: nowMs,
-        run: async () => this.runRedeemTask(positionsAddress),
-      });
-    }
-
-    if (this.telegramClient.isEnabled()) {
-      tasks.push({
-        id: "telegram",
-        intervalMs: this.config.telegramPollMs,
-        nextRunAtMs: nowMs,
-        run: async () => this.runTelegramTask(),
-      });
-    }
-
-    while (!this.stopped) {
-      const loopNowMs = Date.now();
-      const dueTasks = tasks.filter((task) => task.nextRunAtMs <= loopNowMs);
-
-      if (dueTasks.length === 0) {
-        const nextWakeAtMs = Math.min(...tasks.map((task) => task.nextRunAtMs));
-        await sleepMs(Math.max(1, nextWakeAtMs - loopNowMs));
-        continue;
-      }
-
-      for (const task of dueTasks) {
-        await task.run();
-        task.nextRunAtMs =
-          task.id === "market"
-            ? Date.now() + Math.max(1, nextMarketDelayMs || this.config.marketPollMs)
-            : Date.now() + task.intervalMs;
-      }
-    }
+    await runScheduler(this, positionsAddress);
 
     await this.notify({
       title: "Bot stopped",
