@@ -67,7 +67,10 @@ export class EntryService {
       return;
     }
 
-    const existingPositions = await this.dataClient.getPositions(positionsAddress, entryConditionId);
+    const existingPositions = await this.dataClient.getPositions(
+      positionsAddress,
+      entryConditionId,
+    );
     const existingSummary = summarizePositions(existingPositions, entryTokenIds);
     if (existingSummary.upSize > 0 || existingSummary.downSize > 0) {
       this.logger.warn(
@@ -85,11 +88,14 @@ export class EntryService {
     }
 
     if (this.trackedMarketState.has(entryConditionId)) {
-      this.logger.debug({ conditionId: entryConditionId, slug: entryMarket.slug }, "Skipped new entry: market already tracked");
+      this.logger.debug(
+        { conditionId: entryConditionId, slug: entryMarket.slug },
+        "Skipped new entry: market already tracked",
+      );
       return;
     }
 
-    const requiredUsdc = this.config.orderPrice * this.config.orderSize * 2;
+    const requiredUsdc = 5;
     const currentUsdcBalance = await this.clobClient.getUsdcBalance();
     if (currentUsdcBalance < requiredUsdc) {
       this.logger.debug(
