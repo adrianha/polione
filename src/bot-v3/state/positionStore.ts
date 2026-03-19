@@ -23,8 +23,6 @@ const isLivePosition = (value: unknown): value is V3LivePosition => {
     Number.isFinite(candidate.targetPrice) &&
     typeof candidate.stopPrice === "number" &&
     Number.isFinite(candidate.stopPrice) &&
-    typeof candidate.filledSize === "number" &&
-    Number.isFinite(candidate.filledSize) &&
     ["open", "awaiting_resolution", "redeeming"].includes(String(candidate.status)) &&
     typeof candidate.openedAtMs === "number" &&
     Number.isFinite(candidate.openedAtMs) &&

@@ -27,7 +27,6 @@ describe("bot v3 position store", () => {
       entryPrice: 0.86,
       targetPrice: 0.95,
       stopPrice: 0.75,
-      filledSize: 5,
       status: "open" as const,
       openedAtMs: Date.now(),
       updatedAtMs: Date.now(),

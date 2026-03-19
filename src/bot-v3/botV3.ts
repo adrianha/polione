@@ -192,7 +192,6 @@ export class PolymarketBotV3 {
         entryPrice: fill.averagePrice,
         targetPrice: this.v3Config.takeProfitPrice,
         stopPrice: this.v3Config.stopLossPrice,
-        filledSize: fill.filledSize,
         status: "open",
         openedAtMs: Date.now(),
         updatedAtMs: Date.now(),
@@ -259,7 +258,6 @@ export class PolymarketBotV3 {
       if (snapshot.secondsToClose !== null && snapshot.secondsToClose <= 0) {
         await this.portfolioService.saveLivePosition({
           ...livePosition,
-          filledSize: balanceState.heldSize,
           status: "awaiting_resolution",
           updatedAtMs: Date.now(),
         });
@@ -278,13 +276,6 @@ export class PolymarketBotV3 {
             ? "sl"
             : null;
       if (!exitReason) {
-        if (Math.abs(balanceState.heldSize - livePosition.filledSize) > 0.0001) {
-          await this.portfolioService.saveLivePosition({
-            ...livePosition,
-            filledSize: balanceState.heldSize,
-            updatedAtMs: Date.now(),
-          });
-        }
         return;
       }
 
@@ -328,7 +319,6 @@ export class PolymarketBotV3 {
       await this.portfolioService.saveLivePosition({
         ...livePosition,
         exitOrderId: exitFill.orderId,
-        filledSize: remainingSize,
         updatedAtMs: Date.now(),
         lastExitReason: exitReason,
       });

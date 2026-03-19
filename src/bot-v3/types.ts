@@ -52,7 +52,6 @@ export interface V3LivePosition {
   entryPrice: number;
   targetPrice: number;
   stopPrice: number;
-  filledSize: number;
   status: V3PositionStatus;
   openedAtMs: number;
   updatedAtMs: number;
