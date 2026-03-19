@@ -65,6 +65,18 @@ export interface BotConfig {
   requestRetries: number;
   requestRetryBackoffMs: number;
   stateFilePath: string;
+  v3MarketSlugPrefix?: string;
+  v3MarketIntervalSeconds?: number;
+  v3EntryThreshold?: number;
+  v3TakeProfitPrice?: number;
+  v3StopLossPrice?: number;
+  v3OrderSize?: number;
+  v3MaxEntryAsk?: number;
+  v3MaxLivePositions?: number;
+  v3LoopIntervalSeconds?: number;
+  v3OrderFillTimeoutMs?: number;
+  v3OrderFillPollIntervalMs?: number;
+  v3StateFilePath?: string;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 }
 
