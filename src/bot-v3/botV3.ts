@@ -98,7 +98,6 @@ export class PolymarketBotV3 {
         takeProfitPrice: this.v3Config.takeProfitPrice,
         stopLossPrice: this.v3Config.stopLossPrice,
         maxExecutionValue: this.v3Config.maxExecutionValue,
-        maxLivePositions: this.v3Config.maxLivePositions,
         stateFilePath: this.v3Config.stateFilePath,
       },
       "Bot V3 initialized",
@@ -187,8 +186,6 @@ export class PolymarketBotV3 {
         slug: signal.slug,
         tokenId: signal.tokenId,
         outcome: signal.outcome,
-        entryOrderId: fill.orderId,
-        exitOrderId: null,
         entryPrice: fill.averagePrice,
         targetPrice: this.v3Config.takeProfitPrice,
         stopPrice: this.v3Config.stopLossPrice,
@@ -318,9 +315,7 @@ export class PolymarketBotV3 {
 
       await this.portfolioService.saveLivePosition({
         ...livePosition,
-        exitOrderId: exitFill.orderId,
         updatedAtMs: Date.now(),
-        lastExitReason: exitReason,
       });
       this.logger.warn(
         {

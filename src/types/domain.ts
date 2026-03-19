@@ -71,7 +71,6 @@ export interface BotConfig {
   v3TakeProfitPrice?: number;
   v3StopLossPrice?: number;
   v3MaxExecutionValue?: number;
-  v3MaxLivePositions?: number;
   v3LoopIntervalSeconds?: number;
   v3OrderFillTimeoutMs?: number;
   v3OrderFillPollIntervalMs?: number;

@@ -22,8 +22,6 @@ describe("bot v3 position store", () => {
       slug: "sol-updown-5m-123",
       tokenId: "token-1",
       outcome: "Up",
-      entryOrderId: "entry-1",
-      exitOrderId: null,
       entryPrice: 0.86,
       targetPrice: 0.95,
       stopPrice: 0.75,

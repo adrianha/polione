@@ -9,7 +9,6 @@ export const createV3Config = (config: BotConfig): V3Config => {
     takeProfitPrice: config.v3TakeProfitPrice ?? 0.95,
     stopLossPrice: config.v3StopLossPrice ?? 0.75,
     maxExecutionValue: config.v3MaxExecutionValue ?? 5,
-    maxLivePositions: config.v3MaxLivePositions ?? 1,
     loopIntervalSeconds: config.v3LoopIntervalSeconds ?? 2,
     orderFillTimeoutMs: config.v3OrderFillTimeoutMs ?? 10_000,
     orderFillPollIntervalMs: config.v3OrderFillPollIntervalMs ?? 1_000,

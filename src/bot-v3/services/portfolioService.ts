@@ -30,9 +30,6 @@ export class V3PortfolioService {
   }
 
   async hasCapacityForNewPosition(positionsAddress: string): Promise<boolean> {
-    if (this.config.maxLivePositions <= 0) {
-      return false;
-    }
     if (this.positionStore.getLivePosition()) {
       return false;
     }

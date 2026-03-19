@@ -7,7 +7,6 @@ export interface V3Config {
   takeProfitPrice: number;
   stopLossPrice: number;
   maxExecutionValue: number;
-  maxLivePositions: number;
   loopIntervalSeconds: number;
   orderFillTimeoutMs: number;
   orderFillPollIntervalMs: number;
@@ -47,15 +46,12 @@ export interface V3LivePosition {
   slug: string;
   tokenId: string;
   outcome: string;
-  entryOrderId: string | null;
-  exitOrderId: string | null;
   entryPrice: number;
   targetPrice: number;
   stopPrice: number;
   status: V3PositionStatus;
   openedAtMs: number;
   updatedAtMs: number;
-  lastExitReason?: "tp" | "sl";
 }
 
 export interface V3PersistedState {

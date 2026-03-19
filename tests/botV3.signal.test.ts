@@ -55,7 +55,6 @@ const baseConfig: BotConfig = {
   v3TakeProfitPrice: 0.95,
   v3StopLossPrice: 0.75,
   v3MaxExecutionValue: 5,
-  v3MaxLivePositions: 1,
   v3LoopIntervalSeconds: 2,
   v3OrderFillTimeoutMs: 10000,
   v3OrderFillPollIntervalMs: 1000,
