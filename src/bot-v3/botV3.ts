@@ -97,6 +97,7 @@ export class PolymarketBotV3 {
         entryThreshold: this.v3Config.entryThreshold,
         takeProfitPrice: this.v3Config.takeProfitPrice,
         stopLossPrice: this.v3Config.stopLossPrice,
+        maxExecutionValue: this.v3Config.maxExecutionValue,
         maxLivePositions: this.v3Config.maxLivePositions,
         stateFilePath: this.v3Config.stateFilePath,
       },
@@ -141,10 +142,19 @@ export class PolymarketBotV3 {
     }
 
     const usdcBalance = await this.clobClient.getUsdcBalance();
-    const requiredBalance = signal.bestAsk * this.v3Config.orderSize;
+    const entrySize = this.getExecutionSize(signal.bestAsk);
+    if (entrySize <= 0) {
+      this.logger.debug(
+        { bestAsk: signal.bestAsk, maxExecutionValue: this.v3Config.maxExecutionValue, slug: signal.slug },
+        "V3 entry skipped: execution size rounded to zero under max execution value",
+      );
+      return;
+    }
+
+    const requiredBalance = signal.bestAsk * entrySize;
     if (usdcBalance < requiredBalance) {
       this.logger.debug(
-        { usdcBalance, requiredBalance, slug: signal.slug },
+        { usdcBalance, requiredBalance, entrySize, slug: signal.slug },
         "V3 entry skipped: insufficient USDC balance",
       );
       return;
@@ -165,7 +175,7 @@ export class PolymarketBotV3 {
     const locked = await this.lockService.withLock(`entry:${signal.conditionId}`, async () => {
       const fill = await this.executionService.buyToken({
         tokenId: signal.tokenId,
-        size: this.v3Config.orderSize,
+        size: entrySize,
       });
       if (fill.filledSize <= 0) {
         this.logger.info({ signal }, "V3 entry order did not fill");
@@ -280,7 +290,7 @@ export class PolymarketBotV3 {
 
       const exitFill = await this.executionService.sellToken({
         tokenId: livePosition.tokenId,
-        size: balanceState.heldSize,
+        size: Math.min(balanceState.heldSize, this.getExecutionSize(tokenQuote.bestBid || livePosition.entryPrice)),
       });
       if (exitFill.filledSize <= 0) {
         this.logger.info(
@@ -336,6 +346,19 @@ export class PolymarketBotV3 {
     if (!locked.executed) {
       this.logger.debug({ conditionId: livePosition.conditionId }, "V3 position skipped: lock already held");
     }
+  }
+
+  private getExecutionSize(referencePrice: number): number {
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
+      return 0;
+    }
+
+    const cappedSize = this.v3Config.maxExecutionValue / referencePrice;
+    if (!Number.isFinite(cappedSize) || cappedSize <= 0) {
+      return 0;
+    }
+
+    return Number(cappedSize.toFixed(6));
   }
 
   private async handleResolution(
