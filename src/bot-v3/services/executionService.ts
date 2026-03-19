@@ -18,15 +18,15 @@ export class V3ExecutionService {
     bestAsk: number;
     maxEntryAsk: number;
   }): Promise<V3OrderExecutionResult> {
-    const limitPrice = roundBuyPrice(Math.min(params.bestAsk, params.maxEntryAsk));
-    const orderResult = await this.clobClient.placeLimitOrder({
+    const maxBuyPrice = roundBuyPrice(Math.min(params.bestAsk, params.maxEntryAsk));
+    const orderResult = await this.clobClient.placeMarketOrder({
       tokenId: params.tokenId,
       side: "BUY",
-      price: limitPrice,
-      size: params.size,
+      amount: params.size,
+      price: maxBuyPrice,
     });
 
-    return this.finalizeOrderExecution(orderResult, limitPrice, params.size);
+    return this.finalizeOrderExecution(orderResult, maxBuyPrice, params.size);
   }
 
   async sellToken(params: {
