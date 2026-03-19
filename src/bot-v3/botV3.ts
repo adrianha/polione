@@ -65,7 +65,7 @@ export class PolymarketBotV3 {
       this.positionStore,
       this.logger,
     );
-    this.executionService = new V3ExecutionService(this.v3Config, this.clobClient, this.logger);
+    this.executionService = new V3ExecutionService(this.v3Config, this.clobClient);
     this.resolutionService = new V3ResolutionService(
       this.v3Config,
       this.dataClient,
@@ -166,8 +166,6 @@ export class PolymarketBotV3 {
       const fill = await this.executionService.buyToken({
         tokenId: signal.tokenId,
         size: this.v3Config.orderSize,
-        bestAsk: signal.bestAsk,
-        maxEntryAsk: this.v3Config.maxEntryAsk,
       });
       if (fill.filledSize <= 0) {
         this.logger.info({ signal }, "V3 entry order did not fill");
@@ -283,7 +281,6 @@ export class PolymarketBotV3 {
       const exitFill = await this.executionService.sellToken({
         tokenId: livePosition.tokenId,
         size: balanceState.heldSize,
-        bestBid: tokenQuote.bestBid,
       });
       if (exitFill.filledSize <= 0) {
         this.logger.info(

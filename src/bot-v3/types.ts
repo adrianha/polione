@@ -7,7 +7,6 @@ export interface V3Config {
   takeProfitPrice: number;
   stopLossPrice: number;
   orderSize: number;
-  maxEntryAsk: number;
   maxLivePositions: number;
   loopIntervalSeconds: number;
   orderFillTimeoutMs: number;

@@ -1,52 +1,36 @@
-import type { Logger } from "pino";
 import { PolyClobClient } from "../../clients/clobClient.js";
 import type { V3Config, V3OrderExecutionResult } from "../types.js";
-
-const roundBuyPrice = (price: number): number => Number((Math.ceil(price * 100) / 100).toFixed(2));
-const roundSellPrice = (price: number): number => Number((Math.floor(price * 100) / 100).toFixed(2));
 
 export class V3ExecutionService {
   constructor(
     private readonly config: V3Config,
     private readonly clobClient: PolyClobClient,
-    private readonly logger: Logger,
   ) {}
 
   async buyToken(params: {
     tokenId: string;
     size: number;
-    bestAsk: number;
-    maxEntryAsk: number;
   }): Promise<V3OrderExecutionResult> {
-    const maxBuyPrice = roundBuyPrice(Math.min(params.bestAsk, params.maxEntryAsk));
     const orderResult = await this.clobClient.placeMarketOrder({
       tokenId: params.tokenId,
       side: "BUY",
       amount: params.size,
-      price: maxBuyPrice,
     });
 
-    return this.finalizeOrderExecution(orderResult, maxBuyPrice, params.size);
+    return this.finalizeOrderExecution(orderResult, 0, params.size);
   }
 
   async sellToken(params: {
     tokenId: string;
     size: number;
-    bestBid: number;
   }): Promise<V3OrderExecutionResult> {
-    const minSellPrice = roundSellPrice(params.bestBid);
-    if (minSellPrice <= 0) {
-      return { orderId: null, filledSize: 0, averagePrice: 0 };
-    }
-
     const orderResult = await this.clobClient.placeMarketOrder({
       tokenId: params.tokenId,
       side: "SELL",
       amount: params.size,
-      price: minSellPrice,
     });
 
-    return this.finalizeOrderExecution(orderResult, minSellPrice, params.size);
+    return this.finalizeOrderExecution(orderResult, 0, params.size);
   }
 
   private async finalizeOrderExecution(
@@ -64,7 +48,6 @@ export class V3ExecutionService {
 
     const orderId = this.extractOrderId(orderResult);
     if (!orderId) {
-      this.logger.warn({ orderResult }, "V3 order placed without an order id");
       return {
         orderId: null,
         filledSize: 0,
@@ -73,13 +56,6 @@ export class V3ExecutionService {
     }
 
     const fill = await this.awaitOrderFill(orderId, submittedPrice);
-    if (fill.isOpen) {
-      try {
-        await this.clobClient.cancelOrder(orderId);
-      } catch (error) {
-        this.logger.warn({ error, orderId }, "Failed to cancel residual V3 order after fill wait");
-      }
-    }
 
     return {
       orderId,

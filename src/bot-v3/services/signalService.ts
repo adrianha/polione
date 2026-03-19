@@ -21,10 +21,6 @@ export class V3SignalService {
     if (favorite.bestAsk < this.config.entryThreshold) {
       return null;
     }
-    if (favorite.bestAsk > this.config.maxEntryAsk) {
-      return null;
-    }
-
     return {
       conditionId: snapshot.conditionId,
       slug: snapshot.slug,

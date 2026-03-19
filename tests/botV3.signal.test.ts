@@ -55,7 +55,6 @@ const baseConfig: BotConfig = {
   v3TakeProfitPrice: 0.95,
   v3StopLossPrice: 0.75,
   v3OrderSize: 5,
-  v3MaxEntryAsk: 0.9,
   v3MaxLivePositions: 1,
   v3LoopIntervalSeconds: 2,
   v3OrderFillTimeoutMs: 10000,
@@ -90,19 +89,6 @@ describe("bot v3 signal service", () => {
       bestAsk: 0.86,
       secondsToClose: 120,
     });
-  });
-
-  it("rejects favorites priced above the max entry ask", () => {
-    const service = new V3SignalService(createV3Config(baseConfig));
-    const signal = service.evaluate({
-      ...baseSnapshot,
-      tokens: [
-        { tokenId: "up", outcome: "Up", bestBid: 0.9, bestAsk: 0.91 },
-        { tokenId: "down", outcome: "Down", bestBid: 0.07, bestAsk: 0.09 },
-      ],
-    });
-
-    expect(signal).toBeNull();
   });
 
   it("rejects ties and expired markets", () => {
