@@ -34,19 +34,19 @@ export class V3ExecutionService {
     size: number;
     bestBid: number;
   }): Promise<V3OrderExecutionResult> {
-    const limitPrice = roundSellPrice(params.bestBid);
-    if (limitPrice <= 0) {
+    const minSellPrice = roundSellPrice(params.bestBid);
+    if (minSellPrice <= 0) {
       return { orderId: null, filledSize: 0, averagePrice: 0 };
     }
 
-    const orderResult = await this.clobClient.placeLimitOrder({
+    const orderResult = await this.clobClient.placeMarketOrder({
       tokenId: params.tokenId,
       side: "SELL",
-      price: limitPrice,
-      size: params.size,
+      amount: params.size,
+      price: minSellPrice,
     });
 
-    return this.finalizeOrderExecution(orderResult, limitPrice, params.size);
+    return this.finalizeOrderExecution(orderResult, minSellPrice, params.size);
   }
 
   private async finalizeOrderExecution(
