@@ -96,9 +96,9 @@ export class PolymarketBotV5 {
         slugPrefixes: this.v5Config.slugPrefixes,
         entryThreshold: this.v5Config.entryThreshold,
         maxEntryPrice: this.v5Config.maxEntryPrice,
-        tpOffset: `$+${Math.abs(this.v5Config.takeProfitPrice - 0.85).toFixed(2)}`,
-        slOffset: `$-${Math.abs(0.85 - this.v5Config.stopLossPrice).toFixed(2)}`,
-        rrRatio: `${(Math.abs(this.v5Config.takeProfitPrice - 0.85) / Math.abs(0.85 - this.v5Config.stopLossPrice)).toFixed(1)}:1`,
+        tpOffset: `$+${Math.abs(this.v5Config.takeProfitPrice - this.v5Config.entryThreshold).toFixed(2)}`,
+        slOffset: `$-${Math.abs(this.v5Config.entryThreshold - this.v5Config.stopLossPrice).toFixed(2)}`,
+        rrRatio: `${(Math.abs(this.v5Config.takeProfitPrice - this.v5Config.entryThreshold) / Math.abs(this.v5Config.entryThreshold - this.v5Config.stopLossPrice)).toFixed(1)}:1`,
         trailingTp: this.v5Config.trailingTp,
         maxUsdcPerTrade: this.v5Config.maxUsdcPerTrade,
         maxOpenPositions: this.v5Config.maxOpenPositions,
@@ -488,12 +488,12 @@ export class PolymarketBotV5 {
   }
 
   private computeTpPrice(entryPrice: number): number {
-    const offset = Math.abs(this.v5Config.takeProfitPrice - 0.85);
+    const offset = Math.abs(this.v5Config.takeProfitPrice - this.v5Config.entryThreshold);
     return roundPrice(Math.min(0.99, entryPrice + offset));
   }
 
   private computeSlPrice(entryPrice: number): number {
-    const offset = Math.abs(0.85 - this.v5Config.stopLossPrice);
+    const offset = Math.abs(this.v5Config.entryThreshold - this.v5Config.stopLossPrice);
     return roundPrice(Math.max(0, entryPrice - offset));
   }
 
