@@ -251,9 +251,6 @@ export class PolymarketBotV5 {
       state: "entering",
       highWaterMark: 0,
       entryOrderId: null,
-      tpOrderId: null,
-      slOrderId: null,
-      trailingTpOrderId: null,
       trailingTpActivated: false,
       exitReason: null,
       filledAtMs: null,
@@ -370,61 +367,22 @@ export class PolymarketBotV5 {
   }
 
   private async placeExitOrders(position: V5Position): Promise<void> {
-    try {
-      const size = position.filledSize;
+    const slPrice = this.computeSlPrice(position.entryPrice);
+    const tpPrice = this.computeTpPrice(position.entryPrice);
 
-      if (size <= 0) {
-        this.logger.warn({ slug: position.slug }, "No filled size to exit");
-        return;
-      }
+    this.logger.info(
+      {
+        slug: position.slug,
+        entryPrice: position.entryPrice,
+        tpPrice,
+        slPrice,
+        trailingTp: this.v5Config.trailingTp,
+      },
+      "Position open, monitoring for exit",
+    );
 
-      const slPrice = this.computeSlPrice(position.entryPrice);
-      const tpPrice = this.computeTpPrice(position.entryPrice);
-
-      const slResult = await this.clobClient.placeLimitOrder({
-        tokenId: position.favoriteTokenId,
-        side: "SELL",
-        price: slPrice,
-        size,
-      });
-      position.slOrderId = this.extractOrderId(slResult);
-
-      this.logger.info(
-        {
-          slug: position.slug,
-          entryPrice: position.entryPrice,
-          slPrice,
-          slOrderId: position.slOrderId,
-        },
-        "Stop loss order placed",
-      );
-
-      if (!this.v5Config.trailingTp) {
-        const tpResult = await this.clobClient.placeLimitOrder({
-          tokenId: position.favoriteTokenId,
-          side: "SELL",
-          price: tpPrice,
-          size,
-        });
-        position.tpOrderId = this.extractOrderId(tpResult);
-
-        this.logger.info(
-          {
-            slug: position.slug,
-            entryPrice: position.entryPrice,
-            tpPrice,
-            tpOrderId: position.tpOrderId,
-          },
-          "Take profit order placed",
-        );
-      }
-
-      position.state = "exiting";
-      await this.saveState();
-    } catch (error) {
-      this.logger.error({ slug: position.slug, error }, "Failed to place exit orders");
-      await this.notifyExitError(position.slug, "Failed to place exit orders", error);
-    }
+    position.state = "exiting";
+    await this.saveState();
   }
 
   private async managePosition(position: V5Position): Promise<void> {
@@ -441,123 +399,7 @@ export class PolymarketBotV5 {
       return;
     }
 
-    // state === "exiting"
-    const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-
-    if (quote && this.v5Config.trailingTp) {
-      await this.manageTrailingTp(position, quote);
-    }
-
-    await this.checkExitFills(position);
-  }
-
-  private async manageTrailingTp(
-    position: V5Position,
-    quote: { bestBid: number; bestAsk: number },
-  ): Promise<void> {
-    const currentPrice = quote.bestBid;
-    const activationPrice = this.computeTpPrice(position.entryPrice);
-
-    if (currentPrice > position.highWaterMark) {
-      position.highWaterMark = currentPrice;
-    }
-
-    if (
-      !position.trailingTpActivated &&
-      position.highWaterMark >= activationPrice
-    ) {
-      position.trailingTpActivated = true;
-
-      try {
-        if (position.tpOrderId) {
-          await this.clobClient.cancelOrder(position.tpOrderId);
-          position.tpOrderId = null;
-        }
-
-        const trailingResult = await this.clobClient.placeLimitOrder({
-          tokenId: position.favoriteTokenId,
-          side: "SELL",
-          price: activationPrice,
-          size: position.filledSize,
-        });
-        position.trailingTpOrderId = this.extractOrderId(trailingResult);
-
-        this.logger.info(
-          {
-            slug: position.slug,
-            entryPrice: position.entryPrice,
-            hwm: position.highWaterMark,
-            activationPrice,
-            trailingOrderId: position.trailingTpOrderId,
-          },
-          "Trailing TP activated",
-        );
-
-        await this.saveState();
-        await this.notifyTrailingActivated(position);
-      } catch (error) {
-        this.logger.error({ slug: position.slug, error }, "Failed to place trailing TP order");
-      }
-    }
-  }
-
-  private async checkExitFills(position: V5Position): Promise<void> {
-    if (this.config.dryRun) {
-      await this.checkExitFillsDryRun(position);
-      return;
-    }
-
-    try {
-      const positions = await this.dataClient.getPositions(
-        this.clobClient.getSignerAddress(),
-        position.conditionId,
-      );
-
-      const favPosition = positions.find((p) => p.asset === position.favoriteTokenId);
-      const currentSize = favPosition ? Number(favPosition.size) : 0;
-
-      if (currentSize <= 0 && position.filledSize > 0) {
-        let exitReason: ExitReason = "market_resolved";
-
-        if (position.tpOrderId || position.trailingTpOrderId) {
-          const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-          const exitPrice = quote ? quote.bestBid : 0;
-          const tpPrice = this.computeTpPrice(position.entryPrice);
-          const slPrice = this.computeSlPrice(position.entryPrice);
-
-          if (exitPrice >= tpPrice - 0.01) {
-            exitReason = position.trailingTpActivated ? "trailing_tp" : "take_profit";
-          } else if (exitPrice <= slPrice + 0.01) {
-            exitReason = "stop_loss";
-          } else {
-            exitReason = position.trailingTpActivated ? "trailing_tp" : "take_profit";
-          }
-        }
-
-        await this.closePosition(position, exitReason);
-        return;
-      }
-
-      if (favPosition?.redeemable) {
-        await this.closePosition(position, "market_resolved");
-        return;
-      }
-    } catch (error) {
-      this.logger.warn({ slug: position.slug, error }, "Failed to check exit fills");
-    }
-  }
-
-  private computeTpPrice(entryPrice: number): number {
-    const offset = Math.abs(this.v5Config.takeProfitPrice - 0.85);
-    return roundPrice(Math.min(0.99, entryPrice + offset));
-  }
-
-  private computeSlPrice(entryPrice: number): number {
-    const offset = Math.abs(0.85 - this.v5Config.stopLossPrice);
-    return roundPrice(Math.max(0, entryPrice - offset));
-  }
-
-  private async checkExitFillsDryRun(position: V5Position): Promise<void> {
+    // state === "exiting" — poll-based exit
     const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
     if (!quote) return;
 
@@ -572,39 +414,38 @@ export class PolymarketBotV5 {
 
     // Stop loss hit
     if (currentBid <= slPrice) {
-      await this.closePositionDryRun(position, "stop_loss", slPrice);
+      await this.exitPosition(position, "stop_loss", slPrice);
       return;
     }
 
     // Trailing TP mode
     if (this.v5Config.trailingTp) {
-      const activationPrice = this.computeTpPrice(position.entryPrice);
       if (
         !position.trailingTpActivated &&
-        position.highWaterMark >= activationPrice
+        position.highWaterMark >= tpPrice
       ) {
         position.trailingTpActivated = true;
         this.logger.info(
-          { slug: position.slug, hwm: position.highWaterMark, activationPrice, dryRun: true },
-          "[DRY RUN] Trailing TP activated",
+          { slug: position.slug, entryPrice: position.entryPrice, hwm: position.highWaterMark, activationPrice: tpPrice },
+          "Trailing TP activated",
         );
         await this.saveState();
       }
 
-      if (position.trailingTpActivated && currentBid <= activationPrice) {
-        await this.closePositionDryRun(position, "trailing_tp", activationPrice);
+      if (position.trailingTpActivated && currentBid <= tpPrice) {
+        await this.exitPosition(position, "trailing_tp", tpPrice);
         return;
       }
     }
     // Fixed TP mode
     else {
       if (currentBid >= tpPrice) {
-        await this.closePositionDryRun(position, "take_profit", tpPrice);
+        await this.exitPosition(position, "take_profit", tpPrice);
         return;
       }
     }
 
-    // Check if market is about to close (within 10 seconds of end)
+    // Check if market is about to close
     const slugParts = position.slug.split("-");
     const epochStr = slugParts[slugParts.length - 1];
     const epoch = Number(epochStr);
@@ -612,10 +453,48 @@ export class PolymarketBotV5 {
       const endTime = epoch + this.v5Config.marketIntervalSeconds;
       const now = unixNow();
       if (now >= endTime - 10) {
-        await this.closePositionDryRun(position, "market_resolved", currentBid);
-        return;
+        await this.exitPosition(position, "market_resolved", currentBid);
       }
     }
+  }
+
+  private async exitPosition(
+    position: V5Position,
+    reason: ExitReason,
+    targetPrice: number,
+  ): Promise<void> {
+    if (this.config.dryRun) {
+      await this.closePositionDryRun(position, reason, targetPrice);
+      return;
+    }
+
+    try {
+      await this.clobClient.placeMarketOrder({
+        tokenId: position.favoriteTokenId,
+        side: "SELL",
+        amount: position.filledSize,
+        price: roundPrice(targetPrice),
+      });
+
+      this.logger.info(
+        { slug: position.slug, reason, filledSize: position.filledSize, targetPrice },
+        "Exit market sell placed",
+      );
+    } catch (error) {
+      this.logger.error({ slug: position.slug, reason, error }, "Exit market sell failed");
+    }
+
+    await this.closePosition(position, reason);
+  }
+
+  private computeTpPrice(entryPrice: number): number {
+    const offset = Math.abs(this.v5Config.takeProfitPrice - 0.85);
+    return roundPrice(Math.min(0.99, entryPrice + offset));
+  }
+
+  private computeSlPrice(entryPrice: number): number {
+    const offset = Math.abs(0.85 - this.v5Config.stopLossPrice);
+    return roundPrice(Math.max(0, entryPrice - offset));
   }
 
   private async closePositionDryRun(
@@ -674,7 +553,6 @@ export class PolymarketBotV5 {
     position.exitReason = reason;
     position.closedAtMs = Date.now();
 
-    await this.cancelAllOrders(position);
     await this.saveState();
 
     const pnl = this.estimatePnl(position);
@@ -690,23 +568,6 @@ export class PolymarketBotV5 {
     const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
     const exitPrice = quote ? quote.bestBid : 0;
     return roundPrice((exitPrice - position.entryPrice) * position.filledSize);
-  }
-
-  private async cancelAllOrders(position: V5Position): Promise<void> {
-    const orderIds = [
-      position.tpOrderId,
-      position.slOrderId,
-      position.trailingTpOrderId,
-    ].filter((id): id is string => id !== null);
-
-    if (orderIds.length === 0) return;
-
-    try {
-      await this.clobClient.cancelOrders(orderIds);
-      this.logger.debug({ slug: position.slug, orderIds }, "Cancelled exit orders");
-    } catch (error) {
-      this.logger.warn({ slug: position.slug, error }, "Failed to cancel some exit orders");
-    }
   }
 
   private buildCurrentSlug(prefix: string): string {

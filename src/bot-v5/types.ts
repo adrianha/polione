@@ -14,9 +14,6 @@ export interface V5Position {
   state: PositionState;
   highWaterMark: number;
   entryOrderId: string | null;
-  tpOrderId: string | null;
-  slOrderId: string | null;
-  trailingTpOrderId: string | null;
   trailingTpActivated: boolean;
   exitReason: ExitReason | null;
   filledAtMs: number | null;
