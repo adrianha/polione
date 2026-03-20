@@ -17,7 +17,7 @@ const schema = z.object({
   V5_STOP_LOSS_PRICE: z.coerce.number().min(0).max(1).default(0.9),
   V5_TRAILING_TP: boolString.default(false),
   V5_TRAILING_TP_ACTIVATION: z.coerce.number().min(0).max(1).default(0.95),
-  V5_ORDER_SIZE: z.coerce.number().positive().default(5),
+  V5_MAX_USDC_PER_TRADE: z.coerce.number().positive().default(5),
   V5_MAX_OPEN_POSITIONS: z.coerce.number().int().positive().default(3),
   V5_LOOP_INTERVAL_SECONDS: z.coerce.number().positive().default(2),
   V5_ORDER_FILL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
@@ -34,7 +34,7 @@ export interface V5Config {
   stopLossPrice: number;
   trailingTp: boolean;
   trailingTpActivation: number;
-  orderSize: number;
+  maxUsdcPerTrade: number;
   maxOpenPositions: number;
   loopIntervalSeconds: number;
   orderFillTimeoutMs: number;
@@ -62,7 +62,7 @@ export const loadV5Config = (): V5Config => {
     stopLossPrice: parsed.V5_STOP_LOSS_PRICE,
     trailingTp: parsed.V5_TRAILING_TP,
     trailingTpActivation: parsed.V5_TRAILING_TP_ACTIVATION,
-    orderSize: parsed.V5_ORDER_SIZE,
+    maxUsdcPerTrade: parsed.V5_MAX_USDC_PER_TRADE,
     maxOpenPositions: parsed.V5_MAX_OPEN_POSITIONS,
     loopIntervalSeconds: parsed.V5_LOOP_INTERVAL_SECONDS,
     orderFillTimeoutMs: parsed.V5_ORDER_FILL_TIMEOUT_MS,

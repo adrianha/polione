@@ -100,7 +100,7 @@ export class PolymarketBotV5 {
         slOffset: `$-${Math.abs(0.85 - this.v5Config.stopLossPrice).toFixed(2)}`,
         rrRatio: `${(Math.abs(this.v5Config.takeProfitPrice - 0.85) / Math.abs(0.85 - this.v5Config.stopLossPrice)).toFixed(1)}:1`,
         trailingTp: this.v5Config.trailingTp,
-        orderSize: this.v5Config.orderSize,
+        maxUsdcPerTrade: this.v5Config.maxUsdcPerTrade,
         maxOpenPositions: this.v5Config.maxOpenPositions,
       },
       "Bot V5 started",
@@ -246,7 +246,7 @@ export class PolymarketBotV5 {
       favoriteTokenId,
       favoriteSide,
       entryPrice: 0,
-      size: this.v5Config.orderSize,
+      size: this.v5Config.maxUsdcPerTrade,
       filledSize: 0,
       state: "entering",
       highWaterMark: 0,
@@ -268,7 +268,7 @@ export class PolymarketBotV5 {
       const result = await this.clobClient.placeMarketOrder({
         tokenId: favoriteTokenId,
         side: "BUY",
-        amount: this.v5Config.orderSize,
+        amount: this.v5Config.maxUsdcPerTrade,
         price: roundPrice(estimatedPrice),
       });
 
@@ -276,7 +276,7 @@ export class PolymarketBotV5 {
       position.entryOrderId = entryOrderId;
 
       this.logger.info(
-        { slug, favoriteSide, estimatedPrice, size: this.v5Config.orderSize, entryOrderId },
+        { slug, favoriteSide, estimatedPrice, maxUsdc: this.v5Config.maxUsdcPerTrade, entryOrderId },
         "Entry market order placed",
       );
 
