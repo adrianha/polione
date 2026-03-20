@@ -15,10 +15,11 @@ TypeScript trading bot for Polymarket BTC 5-minute up/down markets with safe-mod
 - `DRY_RUN=true` (default): simulates CLOB and relayer writes and logs intent payloads.
 - `DRY_RUN=false`: enables live order placement and relayer transactions.
 
-## Runtime selection (V1 vs V2)
+## Runtime selection (V1 vs V3)
 
 - `BOT_RUNTIME=v1` (default): runs legacy orchestrator in `src/bot.ts`.
 - `BOT_RUNTIME=v2`: runs domain-based orchestrator in `src/bot-v2`.
+- `BOT_RUNTIME=v3`: runs the market-order-native momentum bot in `src/bot-v3`.
 
 V2 is designed around single responsibility and one scheduler heartbeat:
 
@@ -31,6 +32,12 @@ Start V2 locally:
 
 ```bash
 BOT_RUNTIME=v2 bun run dev
+```
+
+Start V3 locally:
+
+```bash
+BOT_RUNTIME=v3 bun run dev
 ```
 
 ## Quick start
@@ -74,6 +81,7 @@ bun run bot
 - Entry point: `src/main.ts`
 - Main orchestration loop: `src/bot.ts`
 - V2 orchestration root: `src/bot-v2/botV2.ts`
+- V3 orchestration root: `src/bot-v3/botV3.ts`
 - V2 scheduler: `src/bot-v2/runtime/scheduler.ts`
 - V2 tasks: `src/bot-v2/runtime/tasks/*.ts`
 - V2 domain services: `src/bot-v2/domain/**/*.ts`
@@ -136,7 +144,29 @@ Optional:
 
 - `FUNDER` (when set, used as the positions address instead of signer address)
 - `POLYMARKET_RELAYER_URL`, `POLYGON_RPC` (both required to enable relayer)
-- `BOT_RUNTIME=v1|v2` (default `v1`)
+- `BOT_RUNTIME=v1|v2|v3` (default `v1`)
+
+V3 strategy config (optional; V3 only):
+
+- `V3_MARKET_SLUG_PREFIX` (default `sol-updown-5m`)
+- `V3_MARKET_INTERVAL_SECONDS` (default `300`)
+- `V3_ENTRY_THRESHOLD` (default `0.85`)
+- `V3_TAKE_PROFIT_PRICE` (default `0.95`)
+- `V3_STOP_LOSS_PRICE` (default `0.75`)
+- `V3_MAX_EXECUTION_VALUE` (default `5`)
+- `V3_LOOP_INTERVAL_SECONDS` (default `2`)
+- `V3_ORDER_FILL_TIMEOUT_MS` (default `10000`)
+- `V3_ORDER_FILL_POLL_INTERVAL_MS` (default `1000`)
+- `V3_STATE_FILE_PATH` (default `.bot-v3-state.json`)
+
+V3 behavior summary:
+
+- Trades the current market from `V3_MARKET_SLUG_PREFIX` only.
+- Buys the favorite when its executable `bestAsk >= V3_ENTRY_THRESHOLD`.
+- Uses market orders for entry and TP/SL exit.
+- Sizes each execution from `V3_MAX_EXECUTION_VALUE / current_price`.
+- Holds at most one live position and uses live wallet balances as the source of truth.
+- Sends Telegram notifications for successful buy, TP, and SL when Telegram env vars are configured.
 
 V2 scheduler cadence (optional; V2 only):
 
