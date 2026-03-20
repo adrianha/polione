@@ -14,7 +14,7 @@ const schema = z.object({
   V5_ENTRY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
   V5_MAX_ENTRY_PRICE: z.coerce.number().min(0).max(1).default(0.92),
   V5_TAKE_PROFIT_PRICE: z.coerce.number().min(0).max(1).default(0.95),
-  V5_STOP_LOSS_PRICE: z.coerce.number().min(0).max(1).default(0.75),
+  V5_STOP_LOSS_PRICE: z.coerce.number().min(0).max(1).default(0.9),
   V5_TRAILING_TP: boolString.default(false),
   V5_TRAILING_TP_ACTIVATION: z.coerce.number().min(0).max(1).default(0.95),
   V5_ORDER_SIZE: z.coerce.number().positive().default(5),

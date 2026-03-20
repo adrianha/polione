@@ -95,8 +95,10 @@ export class PolymarketBotV5 {
       {
         slugPrefixes: this.v5Config.slugPrefixes,
         entryThreshold: this.v5Config.entryThreshold,
-        takeProfitPrice: this.v5Config.takeProfitPrice,
-        stopLossPrice: this.v5Config.stopLossPrice,
+        maxEntryPrice: this.v5Config.maxEntryPrice,
+        tpOffset: `$+${Math.abs(this.v5Config.takeProfitPrice - 0.85).toFixed(2)}`,
+        slOffset: `$-${Math.abs(0.85 - this.v5Config.stopLossPrice).toFixed(2)}`,
+        rrRatio: `${(Math.abs(this.v5Config.takeProfitPrice - 0.85) / Math.abs(0.85 - this.v5Config.stopLossPrice)).toFixed(1)}:1`,
         trailingTp: this.v5Config.trailingTp,
         orderSize: this.v5Config.orderSize,
         maxOpenPositions: this.v5Config.maxOpenPositions,
