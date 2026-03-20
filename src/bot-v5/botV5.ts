@@ -549,7 +549,7 @@ export class PolymarketBotV5 {
 
   private computeTpPrice(entryPrice: number): number {
     const offset = Math.abs(this.v5Config.takeProfitPrice - 0.85);
-    return roundPrice(Math.min(1, entryPrice + offset));
+    return roundPrice(Math.min(0.99, entryPrice + offset));
   }
 
   private computeSlPrice(entryPrice: number): number {
