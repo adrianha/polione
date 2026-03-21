@@ -584,25 +584,34 @@ export class PolymarketBotV5 {
         slug: position.slug,
         favoriteSide: position.favoriteSide,
         favoriteTokenId: position.favoriteTokenId,
-        side: "BUY",
-        amount: this.v5Config.maxUsdcPerTrade,
+        side: "SELL",
+        amount: position.filledSize,
         price: roundPrice(targetPrice),
+        position,
       },
       "Placing exit market order",
     );
 
     try {
-      await this.clobClient.placeMarketOrder({
+      const result = await this.clobClient.placeMarketOrder({
         tokenId: position.favoriteTokenId,
         side: "SELL",
         amount: position.filledSize,
         price: roundPrice(targetPrice),
       });
 
-      this.logger.info(
-        { slug: position.slug, reason, filledSize: position.filledSize, targetPrice },
-        "Exit market sell placed",
-      );
+      const orderError = this.extractOrderError(result);
+      if (orderError) {
+        this.logger.warn(
+          { slug: position.slug, reason, filledSize: position.filledSize, error: orderError },
+          "Exit market sell rejected",
+        );
+      } else {
+        this.logger.info(
+          { slug: position.slug, reason, filledSize: position.filledSize, targetPrice },
+          "Exit market sell placed",
+        );
+      }
     } catch (error) {
       this.logger.error({ slug: position.slug, reason, error }, "Exit market sell failed");
     }
@@ -755,6 +764,7 @@ export class PolymarketBotV5 {
 
     const filledSize =
       (record.filledSize as number | undefined) ??
+      (record.size_matched !== undefined ? Number(record.size_matched) : undefined) ??
       (record.takingAmount as number | undefined) ??
       ((record.order as Record<string, unknown> | undefined)?.filledSize as number | undefined);
 
