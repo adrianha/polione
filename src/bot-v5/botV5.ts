@@ -285,7 +285,7 @@ export class PolymarketBotV5 {
       if (orderError) {
         this.logger.warn(
           { slug, favoriteSide, estimatedPrice, error: orderError, rawResult: result },
-          "Entry FAK order rejected, no liquidity available",
+          "Entry market order rejected, no liquidity available",
         );
         position.state = "closed";
         position.closedAtMs = Date.now();
@@ -329,12 +329,9 @@ export class PolymarketBotV5 {
     const deadline = Date.now() + this.v5Config.orderFillTimeoutMs;
     const orderId = position.entryOrderId;
 
-    // FAK orders resolve immediately — check order status first
+    // Market orders resolve immediately — check order status first
     if (orderId) {
-      this.logger.info(
-        { slug: position.slug, orderId },
-        "Checking entry order status for FAK fill",
-      );
+      this.logger.info({ slug: position.slug, orderId }, "Checking entry order status");
 
       try {
         await sleep(0.5);
@@ -742,7 +739,7 @@ export class PolymarketBotV5 {
       // Try various paths for the error message
       const data = record.data as Record<string, unknown> | undefined;
       const responseData = record.response
-        ? (record.response as Record<string, unknown>).data as Record<string, unknown> | undefined
+        ? ((record.response as Record<string, unknown>).data as Record<string, unknown> | undefined)
         : undefined;
 
       const errorMsg = data?.error ?? responseData?.error ?? record.statusText ?? record.error;

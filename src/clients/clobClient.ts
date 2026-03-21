@@ -157,7 +157,7 @@ export class PolyClobClient {
         tickSize: params.tickSize ?? "0.01",
         negRisk: params.negRisk ?? false,
       },
-      params.orderType ?? OrderType.FAK,
+      params.orderType ?? OrderType.FOK,
     );
   }
 
