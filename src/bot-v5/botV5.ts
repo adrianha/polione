@@ -284,7 +284,7 @@ export class PolymarketBotV5 {
       const orderError = this.extractOrderError(result);
       if (orderError) {
         this.logger.warn(
-          { slug, favoriteSide, estimatedPrice, error: orderError },
+          { slug, favoriteSide, estimatedPrice, error: orderError, rawResult: result },
           "Entry FAK order rejected, no liquidity available",
         );
         position.state = "closed";
@@ -736,10 +736,17 @@ export class PolymarketBotV5 {
 
     if (record.dryRun === true) return null;
 
+    // Check for HTTP error status
     const status = record.status;
     if (typeof status === "number" && status >= 400) {
+      // Try various paths for the error message
       const data = record.data as Record<string, unknown> | undefined;
-      const errorMsg = data?.error;
+      const responseData = record.response
+        ? (record.response as Record<string, unknown>).data as Record<string, unknown> | undefined
+        : undefined;
+
+      const errorMsg = data?.error ?? responseData?.error ?? record.statusText ?? record.error;
+
       return typeof errorMsg === "string" ? errorMsg : `HTTP ${status}`;
     }
 
