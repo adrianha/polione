@@ -241,7 +241,7 @@ export class ClobWsClient {
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send("PING");
       }
-    }, 10000);
+    }, 4000);
   }
 
   private stopHeartbeat(): void {
