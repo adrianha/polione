@@ -9,7 +9,7 @@ const boolString = z
   .transform((value) => value === "true");
 
 const schema = z.object({
-  V5_SLUG_PREFIXES: z.string().default("eth-updown-5m,sol-updown-5m"),
+  V5_SLUG_PREFIXES: z.string().default("sol-updown-5m"),
   V5_MARKET_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
   V5_ENTRY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
   V5_MAX_ENTRY_PRICE: z.coerce.number().min(0).max(1).default(0.92),
@@ -19,7 +19,7 @@ const schema = z.object({
   V5_TRAILING_TP_ACTIVATION: z.coerce.number().min(0).max(1).default(0.95),
   V5_MAX_USDC_PER_TRADE: z.coerce.number().positive().default(5),
   V5_MAX_OPEN_POSITIONS: z.coerce.number().int().positive().default(3),
-  V5_LOOP_INTERVAL_SECONDS: z.coerce.number().positive().default(2),
+  V5_LOOP_INTERVAL_SECONDS: z.coerce.number().positive().default(1),
   V5_ORDER_FILL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   V5_ORDER_FILL_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1_000),
   V5_STATE_FILE_PATH: z.string().default(".bot-v5-state.json"),
