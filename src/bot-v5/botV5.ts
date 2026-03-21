@@ -349,7 +349,9 @@ export class PolymarketBotV5 {
           "Entry order status",
         );
 
-        if (orderStatus.status === "matched" || orderStatus.status === "filled") {
+        const statusLower = orderStatus.status.toLowerCase();
+
+        if (statusLower === "matched" || statusLower === "filled") {
           const filledSize = orderStatus.filledSize ?? position.size;
           position.filledSize = filledSize;
           position.entryPrice = this.estimateEntryPrice(position);
@@ -374,7 +376,7 @@ export class PolymarketBotV5 {
           return;
         }
 
-        if (orderStatus.status === "killed" || orderStatus.status === "canceled") {
+        if (statusLower === "killed" || statusLower === "canceled" || statusLower === "cancelled") {
           this.logger.warn(
             { slug: position.slug, orderId, status: orderStatus.status },
             "Entry order not matched, killed by exchange",
