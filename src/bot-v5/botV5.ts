@@ -59,7 +59,7 @@ const roundPrice = (price: number): number => Number(price.toFixed(4));
 
 export class PolymarketBotV5 {
   private stopped = false;
-  private state: V5State = { positions: {} };
+  private state: V5State = { positions: {}, consecutiveLosses: 0 };
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
@@ -121,6 +121,16 @@ export class PolymarketBotV5 {
   }
 
   private async tick(): Promise<void> {
+    if (this.state.consecutiveLosses >= 3) {
+      this.logger.fatal(
+        { consecutiveLosses: this.state.consecutiveLosses },
+        "3 consecutive losses detected, stopping bot",
+      );
+      await this.notifyMaxLossStreak();
+      this.stop();
+      return;
+    }
+
     for (const prefix of this.v5Config.slugPrefixes) {
       if (this.stopped) break;
       await this.processSlugPrefix(prefix);
@@ -634,6 +644,13 @@ export class PolymarketBotV5 {
     position.closedAtMs = Date.now();
 
     const pnl = roundPrice((exitPrice - position.entryPrice) * position.filledSize);
+
+    if (pnl < 0) {
+      this.state.consecutiveLosses += 1;
+    } else {
+      this.state.consecutiveLosses = 0;
+    }
+
     const pnlPct =
       position.entryPrice > 0
         ? roundPrice((exitPrice - position.entryPrice) / position.entryPrice)
@@ -683,9 +700,20 @@ export class PolymarketBotV5 {
     position.exitReason = reason;
     position.closedAtMs = Date.now();
 
+    const pnl = this.estimatePnl(position);
+
+    if (pnl < 0) {
+      this.state.consecutiveLosses += 1;
+      this.logger.warn(
+        { slug: position.slug, consecutiveLosses: this.state.consecutiveLosses },
+        "Loss detected, incrementing consecutive loss counter",
+      );
+    } else {
+      this.state.consecutiveLosses = 0;
+    }
+
     await this.saveState();
 
-    const pnl = this.estimatePnl(position);
     this.logger.info(
       { slug: position.slug, reason, entryPrice: position.entryPrice, pnl },
       "Position closed",
@@ -784,13 +812,16 @@ export class PolymarketBotV5 {
       const parsed = JSON.parse(content) as unknown;
       if (parsed && typeof parsed === "object" && "positions" in parsed) {
         this.state = parsed as V5State;
+        if (typeof this.state.consecutiveLosses !== "number") {
+          this.state.consecutiveLosses = 0;
+        }
       }
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code !== "ENOENT") {
         this.logger.warn({ error }, "Failed to load V5 state, starting fresh");
       }
-      this.state = { positions: {} };
+      this.state = { positions: {}, consecutiveLosses: 0 };
     }
   }
 
@@ -887,5 +918,15 @@ export class PolymarketBotV5 {
     ].join("\n");
 
     await this.telegramClient.sendHtml(message, `v5-entry-failed:${position.slug}`);
+  }
+
+  private async notifyMaxLossStreak(): Promise<void> {
+    const message = [
+      "<b>🛑 V5 Bot Stopped</b>",
+      `<b>Reason</b>: <code>${this.state.consecutiveLosses} consecutive losses</code>`,
+      "<b>Action</b>: <code>Manual restart required</code>",
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, "v5-max-loss");
   }
 }

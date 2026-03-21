@@ -23,4 +23,5 @@ export interface V5Position {
 
 export interface V5State {
   positions: Record<string, V5Position>;
+  consecutiveLosses: number;
 }
