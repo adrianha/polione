@@ -361,8 +361,9 @@ export class PolymarketBotV5 {
 
         if (statusLower === "matched" || statusLower === "filled") {
           const filledSize = orderStatus.filledSize ?? position.size;
+          const entryPrice = roundPrice(orderStatus.price ?? this.estimateEntryPrice(position));
           position.filledSize = filledSize;
-          position.entryPrice = this.estimateEntryPrice(position);
+          position.entryPrice = entryPrice;
           position.state = "open";
           position.filledAtMs = Date.now();
           position.highWaterMark = position.entryPrice;
@@ -780,7 +781,7 @@ export class PolymarketBotV5 {
     return null;
   }
 
-  private parseOrderStatus(result: unknown): { status: string; filledSize?: number } {
+  private parseOrderStatus(result: unknown): { status: string; filledSize?: number; price?: number } {
     if (!result || typeof result !== "object") {
       return { status: "unknown" };
     }
@@ -798,9 +799,15 @@ export class PolymarketBotV5 {
       (record.takingAmount as number | undefined) ??
       ((record.order as Record<string, unknown> | undefined)?.filledSize as number | undefined);
 
+    const price =
+      (record.price as number | string | undefined) !== undefined
+        ? Number(record.price)
+        : undefined;
+
     return {
       status: status ?? "unknown",
       filledSize: filledSize ? Number(filledSize) : undefined,
+      price: price && price > 0 ? price : undefined,
     };
   }
 
