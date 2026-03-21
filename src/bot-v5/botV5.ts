@@ -261,6 +261,18 @@ export class PolymarketBotV5 {
     this.state.positions[slug] = position;
     await this.saveState();
 
+    this.logger.info(
+      {
+        slug,
+        favoriteSide,
+        favoriteTokenId,
+        side: "BUY",
+        amount: this.v5Config.maxUsdcPerTrade,
+        price: roundPrice(estimatedPrice),
+      },
+      "Placing entry market order",
+    );
+
     try {
       const result = await this.clobClient.placeMarketOrder({
         tokenId: favoriteTokenId,
@@ -269,11 +281,29 @@ export class PolymarketBotV5 {
         price: roundPrice(estimatedPrice),
       });
 
+      const orderError = this.extractOrderError(result);
+      if (orderError) {
+        this.logger.warn(
+          { slug, favoriteSide, estimatedPrice, error: orderError },
+          "Entry FAK order rejected, no liquidity available",
+        );
+        position.state = "closed";
+        position.closedAtMs = Date.now();
+        await this.saveState();
+        return;
+      }
+
       const entryOrderId = this.extractOrderId(result);
       position.entryOrderId = entryOrderId;
 
       this.logger.info(
-        { slug, favoriteSide, estimatedPrice, maxUsdc: this.v5Config.maxUsdcPerTrade, entryOrderId },
+        {
+          slug,
+          favoriteSide,
+          estimatedPrice,
+          maxUsdc: this.v5Config.maxUsdcPerTrade,
+          entryOrderId,
+        },
         "Entry market order placed",
       );
 
@@ -420,13 +450,15 @@ export class PolymarketBotV5 {
 
     // Trailing TP mode
     if (this.v5Config.trailingTp) {
-      if (
-        !position.trailingTpActivated &&
-        position.highWaterMark >= tpPrice
-      ) {
+      if (!position.trailingTpActivated && position.highWaterMark >= tpPrice) {
         position.trailingTpActivated = true;
         this.logger.info(
-          { slug: position.slug, entryPrice: position.entryPrice, hwm: position.highWaterMark, activationPrice: tpPrice },
+          {
+            slug: position.slug,
+            entryPrice: position.entryPrice,
+            hwm: position.highWaterMark,
+            activationPrice: tpPrice,
+          },
           "Trailing TP activated",
         );
         await this.saveState();
@@ -468,6 +500,18 @@ export class PolymarketBotV5 {
       return;
     }
 
+    this.logger.info(
+      {
+        slug: position.slug,
+        favoriteSide: position.favoriteSide,
+        favoriteTokenId: position.favoriteTokenId,
+        side: "BUY",
+        amount: this.v5Config.maxUsdcPerTrade,
+        price: roundPrice(targetPrice),
+      },
+      "Placing exit market order",
+    );
+
     try {
       await this.clobClient.placeMarketOrder({
         tokenId: position.favoriteTokenId,
@@ -507,7 +551,10 @@ export class PolymarketBotV5 {
     position.closedAtMs = Date.now();
 
     const pnl = roundPrice((exitPrice - position.entryPrice) * position.filledSize);
-    const pnlPct = position.entryPrice > 0 ? roundPrice((exitPrice - position.entryPrice) / position.entryPrice) : 0;
+    const pnlPct =
+      position.entryPrice > 0
+        ? roundPrice((exitPrice - position.entryPrice) / position.entryPrice)
+        : 0;
     const holdSeconds = position.filledAtMs
       ? Math.round((Date.now() - position.filledAtMs) / 1000)
       : 0;
@@ -593,6 +640,26 @@ export class PolymarketBotV5 {
       (record as { order?: { orderId?: string; orderID?: string; id?: string } }).order?.id;
 
     return typeof orderId === "string" ? orderId : null;
+  }
+
+  extractOrderError(result: unknown): string | null {
+    if (!result || typeof result !== "object") return null;
+    const record = result as Record<string, unknown>;
+
+    if (record.dryRun === true) return null;
+
+    const status = record.status;
+    if (typeof status === "number" && status >= 400) {
+      const data = record.data as Record<string, unknown> | undefined;
+      const errorMsg = data?.error;
+      return typeof errorMsg === "string" ? errorMsg : `HTTP ${status}`;
+    }
+
+    if (record.error && typeof record.error === "string") {
+      return record.error;
+    }
+
+    return null;
   }
 
   // ─── State persistence ───
@@ -688,11 +755,7 @@ export class PolymarketBotV5 {
     await this.telegramClient.sendHtml(message, `v5-entry-error:${slug}`);
   }
 
-  private async notifyExitError(
-    slug: string,
-    title: string,
-    error: unknown,
-  ): Promise<void> {
+  private async notifyExitError(slug: string, title: string, error: unknown): Promise<void> {
     const message = [
       `<b>❌ V5 ${escapeHtml(title)}</b>`,
       `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
