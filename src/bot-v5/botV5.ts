@@ -290,6 +290,7 @@ export class PolymarketBotV5 {
         position.state = "closed";
         position.closedAtMs = Date.now();
         await this.saveState();
+        await this.notifyEntryRejected(slug, favoriteSide, estimatedPrice, orderError);
         return;
       }
 
@@ -306,6 +307,8 @@ export class PolymarketBotV5 {
         },
         "Entry market order placed",
       );
+
+      await this.notifyEntryPlaced(position);
 
       await this.waitForEntryFill(position);
     } catch (error) {
@@ -384,6 +387,7 @@ export class PolymarketBotV5 {
           position.state = "closed";
           position.closedAtMs = Date.now();
           await this.saveState();
+          await this.notifyEntryFailed(position, "killed by exchange");
           return;
         }
 
@@ -436,6 +440,7 @@ export class PolymarketBotV5 {
     position.state = "closed";
     position.closedAtMs = Date.now();
     await this.saveState();
+    await this.notifyEntryFailed(position, "fill timeout");
   }
 
   private async waitForEntryFillDryRun(position: V5Position): Promise<void> {
@@ -831,17 +836,6 @@ export class PolymarketBotV5 {
     await this.telegramClient.sendHtml(message, `v5-close:${position.slug}`);
   }
 
-  private async notifyTrailingActivated(position: V5Position): Promise<void> {
-    const message = [
-      "<b>📈 V5 Trailing TP Activated</b>",
-      `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
-      `<b>HWM</b>: <code>$${position.highWaterMark.toFixed(2)}</code>`,
-      `<b>Sell at</b>: <code>$${this.v5Config.trailingTpActivation.toFixed(2)}</code>`,
-    ].join("\n");
-
-    await this.telegramClient.sendHtml(message, `v5-trailing:${position.slug}`);
-  }
-
   private async notifyEntryError(slug: string, error: unknown): Promise<void> {
     const message = [
       "<b>❌ V5 Entry Failed</b>",
@@ -852,13 +846,47 @@ export class PolymarketBotV5 {
     await this.telegramClient.sendHtml(message, `v5-entry-error:${slug}`);
   }
 
-  private async notifyExitError(slug: string, title: string, error: unknown): Promise<void> {
+  private async notifyEntryPlaced(position: V5Position): Promise<void> {
+    const icon = position.favoriteSide === "up" ? "🟢" : "🔴";
     const message = [
-      `<b>❌ V5 ${escapeHtml(title)}</b>`,
-      `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
-      `<b>Error</b>: <code>${escapeHtml(String(error instanceof Error ? error.message : error))}</code>`,
+      `<b>${icon} V5 Entry Order Placed</b>`,
+      `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
+      `<b>Side</b>: <code>${position.favoriteSide.toUpperCase()}</code>`,
+      `<b>Size</b>: <code>${position.size}</code>`,
+      `<b>Order</b>: <code>${escapeHtml(truncateId(position.entryOrderId ?? "n/a"))}</code>`,
     ].join("\n");
 
-    await this.telegramClient.sendHtml(message, `v5-exit-error:${slug}`);
+    await this.telegramClient.sendHtml(message, `v5-entry-placed:${position.slug}`);
+  }
+
+  private async notifyEntryRejected(
+    slug: string,
+    favoriteSide: "up" | "down",
+    estimatedPrice: number,
+    reason: string,
+  ): Promise<void> {
+    const icon = favoriteSide === "up" ? "🟢" : "🔴";
+    const message = [
+      `<b>${icon} V5 Entry Rejected</b>`,
+      `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
+      `<b>Side</b>: <code>${favoriteSide.toUpperCase()}</code>`,
+      `<b>Price</b>: <code>${estimatedPrice}</code>`,
+      `<b>Reason</b>: <code>${escapeHtml(reason)}</code>`,
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, `v5-entry-rejected:${slug}`);
+  }
+
+  private async notifyEntryFailed(position: V5Position, reason: string): Promise<void> {
+    const icon = position.favoriteSide === "up" ? "🟢" : "🔴";
+    const message = [
+      `<b>${icon} V5 Entry Failed</b>`,
+      `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
+      `<b>Side</b>: <code>${position.favoriteSide.toUpperCase()}</code>`,
+      `<b>Order</b>: <code>${escapeHtml(truncateId(position.entryOrderId ?? "n/a"))}</code>`,
+      `<b>Reason</b>: <code>${escapeHtml(reason)}</code>`,
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, `v5-entry-failed:${position.slug}`);
   }
 }
