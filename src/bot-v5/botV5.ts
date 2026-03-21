@@ -324,6 +324,78 @@ export class PolymarketBotV5 {
     }
 
     const deadline = Date.now() + this.v5Config.orderFillTimeoutMs;
+    const orderId = position.entryOrderId;
+
+    // FAK orders resolve immediately — check order status first
+    if (orderId) {
+      this.logger.info(
+        { slug: position.slug, orderId },
+        "Checking entry order status for FAK fill",
+      );
+
+      try {
+        await sleep(0.5);
+        const orderResult = await this.clobClient.getOrder(orderId);
+        const orderStatus = this.parseOrderStatus(orderResult);
+
+        this.logger.info(
+          {
+            slug: position.slug,
+            orderId,
+            status: orderStatus.status,
+            filledSize: orderStatus.filledSize,
+            orderResult,
+          },
+          "Entry order status",
+        );
+
+        if (orderStatus.status === "matched" || orderStatus.status === "filled") {
+          const filledSize = orderStatus.filledSize ?? position.size;
+          position.filledSize = filledSize;
+          position.entryPrice = this.estimateEntryPrice(position);
+          position.state = "open";
+          position.filledAtMs = Date.now();
+          position.highWaterMark = position.entryPrice;
+
+          this.logger.info(
+            {
+              slug: position.slug,
+              orderId,
+              status: orderStatus.status,
+              filledSize,
+              entryPrice: position.entryPrice,
+            },
+            "Entry filled",
+          );
+
+          await this.saveState();
+          await this.notifyEntryFilled(position);
+          await this.placeExitOrders(position);
+          return;
+        }
+
+        if (orderStatus.status === "killed" || orderStatus.status === "canceled") {
+          this.logger.warn(
+            { slug: position.slug, orderId, status: orderStatus.status },
+            "Entry order not matched, killed by exchange",
+          );
+          position.state = "closed";
+          position.closedAtMs = Date.now();
+          await this.saveState();
+          return;
+        }
+
+        this.logger.debug(
+          { slug: position.slug, orderId, status: orderStatus.status },
+          "Order status not yet resolved, falling back to position polling",
+        );
+      } catch (error) {
+        this.logger.debug(
+          { slug: position.slug, orderId, error },
+          "Failed to check order status, falling back to position polling",
+        );
+      }
+    }
 
     while (Date.now() < deadline && !this.stopped) {
       try {
@@ -358,7 +430,7 @@ export class PolymarketBotV5 {
       await sleep(this.v5Config.orderFillPollIntervalMs / 1000);
     }
 
-    this.logger.warn({ slug: position.slug }, "Entry fill timeout");
+    this.logger.warn({ slug: position.slug, orderId }, "Entry fill timeout");
     position.state = "closed";
     position.closedAtMs = Date.now();
     await this.saveState();
@@ -660,6 +732,29 @@ export class PolymarketBotV5 {
     }
 
     return null;
+  }
+
+  private parseOrderStatus(result: unknown): { status: string; filledSize?: number } {
+    if (!result || typeof result !== "object") {
+      return { status: "unknown" };
+    }
+
+    const record = result as Record<string, unknown>;
+
+    // Polymarket CLOB returns order status in various shapes
+    const status =
+      (record.status as string | undefined) ??
+      ((record.order as Record<string, unknown> | undefined)?.status as string | undefined);
+
+    const filledSize =
+      (record.filledSize as number | undefined) ??
+      (record.takingAmount as number | undefined) ??
+      ((record.order as Record<string, unknown> | undefined)?.filledSize as number | undefined);
+
+    return {
+      status: status ?? "unknown",
+      filledSize: filledSize ? Number(filledSize) : undefined,
+    };
   }
 
   // ─── State persistence ───
