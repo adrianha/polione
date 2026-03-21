@@ -308,8 +308,6 @@ export class PolymarketBotV5 {
         "Entry market order placed",
       );
 
-      await this.notifyEntryPlaced(position);
-
       await this.waitForEntryFill(position);
     } catch (error) {
       this.logger.error({ slug, error }, "Entry order failed");
@@ -858,19 +856,6 @@ export class PolymarketBotV5 {
     ].join("\n");
 
     await this.telegramClient.sendHtml(message, `v5-entry-error:${slug}`);
-  }
-
-  private async notifyEntryPlaced(position: V5Position): Promise<void> {
-    const icon = position.favoriteSide === "up" ? "🟢" : "🔴";
-    const message = [
-      `<b>${icon} V5 Entry Order Placed</b>`,
-      `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
-      `<b>Side</b>: <code>${position.favoriteSide.toUpperCase()}</code>`,
-      `<b>Size</b>: <code>${position.size}</code>`,
-      `<b>Order</b>: <code>${escapeHtml(truncateId(position.entryOrderId ?? "n/a"))}</code>`,
-    ].join("\n");
-
-    await this.telegramClient.sendHtml(message, `v5-entry-placed:${position.slug}`);
   }
 
   private async notifyEntryRejected(
