@@ -713,21 +713,20 @@ export class PolymarketBotV5 {
 
     // Fetch actual token balance to avoid "not enough balance" errors
     let sellAmount = position.filledSize;
-    try {
-      const positions = await this.dataClient.getPositions(
-        this.clobClient.getSignerAddress(),
-        position.conditionId,
-      );
-      const tokenPosition = positions.find((p) => p.asset === position.favoriteTokenId);
-      if (tokenPosition && Number(tokenPosition.size) > 0) {
-        sellAmount = Number(tokenPosition.size);
+    if (sellAmount < 0) {
+      try {
+        const positions = await this.dataClient.getPositions(
+          this.clobClient.getSignerAddress(),
+          position.conditionId,
+        );
+        const tokenPosition = positions.find((p) => p.asset === position.favoriteTokenId);
+        if (tokenPosition && Number(tokenPosition.size) > 0) {
+          sellAmount = Number(tokenPosition.size);
+        }
+      } catch {
+        // Fall back to filledSize
       }
-    } catch {
-      // Fall back to filledSize
     }
-
-    // Round sellAmount
-    sellAmount = roundPrice(sellAmount);
 
     this.logger.info(
       {
@@ -749,11 +748,12 @@ export class PolymarketBotV5 {
         tokenId: position.favoriteTokenId,
         side: "SELL",
         amount: sellAmount,
-        price: roundPrice(targetPrice),
+        // price: roundPrice(targetPrice),
       });
 
       const orderError = this.extractOrderError(result);
       if (orderError) {
+        sellError = new Error(orderError);
         this.logger.warn(
           { slug: position.slug, reason, amount: sellAmount, error: orderError },
           "Exit market sell rejected",
