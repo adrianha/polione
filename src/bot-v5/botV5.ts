@@ -738,6 +738,8 @@ export class PolymarketBotV5 {
       "Placing exit market order",
     );
 
+    let sellSucceeded = false;
+
     try {
       const result = await this.clobClient.placeMarketOrder({
         tokenId: position.favoriteTokenId,
@@ -764,6 +766,7 @@ export class PolymarketBotV5 {
           return;
         }
       } else {
+        sellSucceeded = true;
         this.logger.info(
           { slug: position.slug, reason, filledSize: position.filledSize, targetPrice },
           "Exit market sell placed",
@@ -784,7 +787,7 @@ export class PolymarketBotV5 {
       }
     }
 
-    await this.closePosition(position, reason, targetPrice);
+    await this.closePosition(position, reason, sellSucceeded ? targetPrice : undefined);
   }
 
   private computeTpPrice(entryPrice: number): number {
@@ -883,11 +886,15 @@ export class PolymarketBotV5 {
     await this.saveState();
 
     this.logger.info(
-      { slug: position.slug, reason, entryPrice: position.entryPrice, pnl },
+      { slug: position.slug, reason, entryPrice: position.entryPrice, pnl, sellSucceeded: exitPrice != null },
       "Position closed",
     );
 
-    await this.notifyPositionClosed(position, reason, pnl);
+    if (exitPrice != null) {
+      await this.notifyPositionClosed(position, reason, pnl);
+    } else {
+      await this.notifyExitFailed(position, reason);
+    }
   }
 
   private buildCurrentSlug(prefix: string): string {
@@ -1105,6 +1112,19 @@ export class PolymarketBotV5 {
     ].join("\n");
 
     await this.telegramClient.sendHtml(message, "v5-max-loss");
+  }
+
+  private async notifyExitFailed(position: V5Position, reason: ExitReason): Promise<void> {
+    const reasonLabel = reason.replace(/_/g, " ").toUpperCase();
+    const message = [
+      `<b>⚠️ V5 Exit Failed — ${escapeHtml(reasonLabel)}</b>`,
+      `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
+      `<b>Side</b>: <code>${position.favoriteSide.toUpperCase()}</code>`,
+      `<b>Size</b>: <code>${position.filledSize}</code>`,
+      "<b>Status</b>: <code>Position closed, tokens may still be held</code>",
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, `v5-exit-failed:${position.slug}`);
   }
 
   private async notifyRedeemSuccess(slug: string, conditionId: string): Promise<void> {
