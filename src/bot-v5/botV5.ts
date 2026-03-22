@@ -167,8 +167,8 @@ export class PolymarketBotV5 {
       return;
     }
 
-    const openCount = Object.values(this.state.positions).filter(
-      (p) => p.state !== "closed",
+    const openCount = Object.entries(this.state.positions).filter(
+      ([slug, p]) => slug.startsWith(prefix) && p.state !== "closed",
     ).length;
     if (openCount >= this.v5Config.maxOpenPositions) {
       return;
