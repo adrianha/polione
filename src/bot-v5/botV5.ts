@@ -726,6 +726,9 @@ export class PolymarketBotV5 {
       // Fall back to filledSize
     }
 
+    // Round sellAmount
+    sellAmount = roundPrice(sellAmount);
+
     this.logger.info(
       {
         slug: position.slug,
