@@ -224,7 +224,7 @@ export class PolymarketBotV5 {
 
       upQuote = { bestAsk: upAsk, bestBid: upAsk };
       downQuote = { bestAsk: downAsk, bestBid: downAsk };
-      this.logger.info({ slug, upAsk, downAsk }, "Using REST prices as quotes");
+      this.logger.debug({ slug, upAsk, downAsk }, "Using REST prices as quotes");
     }
 
     const upAsk = upQuote.bestAsk;
