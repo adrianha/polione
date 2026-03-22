@@ -151,7 +151,7 @@ export class PolyClobClient {
         tokenID: params.tokenId,
         side: toSdkSide(params.side),
         amount: params.amount,
-        price: params.price,
+        // price: params.price,
       },
       {
         tickSize: params.tickSize ?? "0.01",
