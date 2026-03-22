@@ -232,7 +232,7 @@ export class PolymarketBotV5 {
     }
 
     this.logger.info(
-      { slug, favoriteSide, favoriteAsk, threshold: this.v5Config.entryThreshold },
+      { slug, favoriteSide, favoriteAsk, maxEntryPrice },
       "Favorite detected, entering position",
     );
 
@@ -242,7 +242,7 @@ export class PolymarketBotV5 {
       tokenIds,
       favoriteTokenId,
       favoriteSide,
-      estimatedPrice: favoriteAsk,
+      estimatedPrice: maxEntryPrice,
     });
   }
 
