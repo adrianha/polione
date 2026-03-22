@@ -8,9 +8,20 @@ const boolString = z
   })
   .transform((value) => value === "true");
 
+const parseIntervalFromSlug = (slugPrefix: string): number => {
+  const match = slugPrefix.match(/(\d+)([mh])$/i);
+  if (!match) {
+    throw new Error(`Cannot parse interval from slug prefix: ${slugPrefix}. Expected format like "btc-updown-5m" or "eth-updown-15m"`);
+  }
+  const value = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  if (unit === "m") return value * 60;
+  if (unit === "h") return value * 3600;
+  throw new Error(`Unknown interval unit: ${unit}`);
+};
+
 const schema = z.object({
   V5_SLUG_PREFIX: z.string().default("sol-updown-5m"),
-  V5_MARKET_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
   V5_ENTRY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
   V5_MAX_ENTRY_PRICE: z.coerce.number().min(0).max(1).default(0.90),
   V5_TAKE_PROFIT_PRICE: z.coerce.number().min(0).max(1).default(0.95),
@@ -57,7 +68,7 @@ export const loadV5Config = (): V5Config => {
 
   return {
     slugPrefix: parsed.V5_SLUG_PREFIX.trim(),
-    marketIntervalSeconds: parsed.V5_MARKET_INTERVAL_SECONDS,
+    marketIntervalSeconds: parseIntervalFromSlug(parsed.V5_SLUG_PREFIX.trim()),
     entryThreshold: parsed.V5_ENTRY_THRESHOLD,
     maxEntryPrice: parsed.V5_MAX_ENTRY_PRICE,
     takeProfitPrice: parsed.V5_TAKE_PROFIT_PRICE,

@@ -712,22 +712,7 @@ export class PolymarketBotV5 {
     }
 
     // Fetch actual token balance to avoid "not enough balance" errors
-    let sellAmount = position.filledSize;
-    if (sellAmount < 0) {
-      try {
-        const positions = await this.dataClient.getPositions(
-          this.clobClient.getSignerAddress(),
-          position.conditionId,
-        );
-        const tokenPosition = positions.find((p) => p.asset === position.favoriteTokenId);
-        if (tokenPosition && Number(tokenPosition.size) > 0) {
-          sellAmount = Number(tokenPosition.size);
-        }
-      } catch {
-        // Fall back to filledSize
-      }
-    }
-
+    const sellAmount = position.filledSize;
     this.logger.info(
       {
         slug: position.slug,
@@ -735,19 +720,21 @@ export class PolymarketBotV5 {
         favoriteTokenId: position.favoriteTokenId,
         side: "SELL",
         amount: sellAmount,
+        // Disable price limit for SELL
         // price: roundPrice(targetPrice),
       },
       "Placing exit market order",
     );
 
     let sellSucceeded = false;
-    let sellError = null;
+    let sellError: Error | undefined;
 
     try {
       const result = await this.clobClient.placeMarketOrder({
         tokenId: position.favoriteTokenId,
         side: "SELL",
         amount: sellAmount,
+        // Disable price limit for SELL
         // price: roundPrice(targetPrice),
       });
 
@@ -777,7 +764,7 @@ export class PolymarketBotV5 {
         );
       }
     } catch (error) {
-      sellError = error;
+      sellError = error instanceof Error ? error : new Error(String(error));
       this.logger.error({ slug: position.slug, reason, error }, "Exit market sell failed");
 
       if (reason === "market_resolved" && this.v5Config.redeemEnabled) {
@@ -892,7 +879,13 @@ export class PolymarketBotV5 {
     await this.saveState();
 
     this.logger.info(
-      { slug: position.slug, reason, entryPrice: position.entryPrice, pnl, sellSucceeded: exitPrice != null },
+      {
+        slug: position.slug,
+        reason,
+        entryPrice: position.entryPrice,
+        pnl,
+        sellSucceeded: exitPrice != null,
+      },
       "Position closed",
     );
 
@@ -1127,14 +1120,18 @@ export class PolymarketBotV5 {
     await this.telegramClient.sendHtml(message, "v5-max-loss");
   }
 
-  private async notifyExitFailed(position: V5Position, reason: ExitReason, error: Error): Promise<void> {
+  private async notifyExitFailed(
+    position: V5Position,
+    reason: ExitReason,
+    error?: Error,
+  ): Promise<void> {
     const reasonLabel = reason.replace(/_/g, " ").toUpperCase();
     const message = [
       `<b>⚠️ V5 Exit Failed — ${escapeHtml(reasonLabel)}</b>`,
       `<b>Market</b>: <code>${escapeHtml(position.slug)}</code>`,
       `<b>Side</b>: <code>${position.favoriteSide.toUpperCase()}</code>`,
       `<b>Size</b>: <code>${position.filledSize}</code>`,
-      `<b>Status</b>: <code>${error.toString()}</code>`,
+      `<b>Status</b>: <code>${error ? error.toString() : "Exit order failed"}</code>`,
     ].join("\n");
 
     await this.telegramClient.sendHtml(message, `v5-exit-failed:${position.slug}`);
