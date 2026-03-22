@@ -188,7 +188,12 @@ export class PolymarketBotV5 {
       }
 
       this.logger.info(
-        { slug: signal.slug, favoriteSide: signal.favoriteSide, favoriteAsk: signal.estimatedPrice, threshold: this.v5Config.entryThreshold },
+        {
+          slug: signal.slug,
+          favoriteSide: signal.favoriteSide,
+          favoriteAsk: signal.estimatedPrice,
+          threshold: this.v5Config.entryThreshold,
+        },
         "Favorite detected, entering position",
       );
       await this.enterPosition(signal);
@@ -260,7 +265,7 @@ export class PolymarketBotV5 {
 
       upQuote = { bestAsk: upAsk, bestBid: upAsk };
       downQuote = { bestAsk: downAsk, bestBid: downAsk };
-      this.logger.info({ slug, upAsk, downAsk }, "Using REST prices as quotes");
+      this.logger.debug({ slug, upAsk, downAsk }, "Using REST prices as quotes");
     }
 
     const upAsk = upQuote.bestAsk;
