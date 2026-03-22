@@ -29,16 +29,6 @@ interface TradeLogEntry {
   timestamp: string;
 }
 
-interface EntrySignal {
-  prefix: string;
-  conditionId: string;
-  slug: string;
-  tokenIds: TokenIds;
-  favoriteTokenId: string;
-  favoriteSide: "up" | "down";
-  estimatedPrice: number;
-}
-
 const parseClobTokenIds = (raw: unknown): string[] => {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map((item) => String(item));
@@ -151,47 +141,9 @@ export class PolymarketBotV5 {
       return;
     }
 
-    // Manage existing positions in parallel
-    const existingPrefixes = this.v5Config.slugPrefixes.filter((prefix) => {
-      const slug = this.buildCurrentSlug(prefix);
-      const pos = this.state.positions[slug];
-      return pos && pos.state !== "closed" && pos.state !== "entering";
-    });
-
-    await Promise.all(
-      existingPrefixes.map((prefix) => {
-        const slug = this.buildCurrentSlug(prefix);
-        return this.managePosition(this.state.positions[slug]);
-      }),
-    );
-
-    // Collect entry signals in parallel
-    const newPrefixes = this.v5Config.slugPrefixes.filter((prefix) => {
-      const slug = this.buildCurrentSlug(prefix);
-      const pos = this.state.positions[slug];
-      return !pos || pos.state === "closed";
-    });
-
-    const signals = (
-      await Promise.all(newPrefixes.map((prefix) => this.collectEntrySignal(prefix)))
-    ).filter((s): s is NonNullable<typeof s> => s !== null);
-
-    // Enter positions serially to avoid race conditions on maxOpenPositions
-    for (const signal of signals) {
+    for (const prefix of this.v5Config.slugPrefixes) {
       if (this.stopped) break;
-
-      const openCount = Object.entries(this.state.positions).filter(
-        ([slug, p]) => slug.startsWith(signal.prefix) && p.state !== "closed",
-      ).length;
-      if (openCount >= this.v5Config.maxOpenPositions) {
-        continue;
-      }
-
-      this.logger.info(
-        { slug: signal.slug, favoriteSide: signal.favoriteSide, favoriteAsk: signal.estimatedPrice, threshold: this.v5Config.entryThreshold },
-        "Favorite detected, entering position",
-      );
-      await this.enterPosition(signal);
+      await this.processSlugPrefix(prefix);
     }
 
     const now = Date.now();
@@ -202,12 +154,24 @@ export class PolymarketBotV5 {
     }
   }
 
-  private async collectEntrySignal(prefix: string): Promise<EntrySignal | null> {
+  private async processSlugPrefix(prefix: string): Promise<void> {
     const slug = this.buildCurrentSlug(prefix);
     const existingPosition = this.state.positions[slug];
 
-    if (existingPosition && existingPosition.state !== "closed") {
-      return null;
+    if (existingPosition?.state === "closed") {
+      return;
+    }
+
+    if (existingPosition) {
+      await this.managePosition(existingPosition);
+      return;
+    }
+
+    const openCount = Object.entries(this.state.positions).filter(
+      ([slug, p]) => slug.startsWith(prefix) && p.state !== "closed",
+    ).length;
+    if (openCount >= this.v5Config.maxOpenPositions) {
+      return;
     }
 
     let market: MarketRecord | null;
@@ -215,27 +179,27 @@ export class PolymarketBotV5 {
       market = await this.gammaClient.getMarketBySlug(slug);
     } catch (error) {
       this.logger.warn({ slug, error }, "Failed to fetch market");
-      return null;
+      return;
     }
 
     if (!market) {
-      return null;
+      return;
     }
 
     const conditionId = market.conditionId ?? market.condition_id;
     if (!conditionId) {
       this.logger.warn({ slug }, "Market missing conditionId");
-      return null;
+      return;
     }
 
     if (market.closed || market.archived) {
-      return null;
+      return;
     }
 
     const tokenIds = parseTokens(market);
     if (!tokenIds) {
       this.logger.warn({ slug }, "Could not parse token IDs");
-      return null;
+      return;
     }
 
     this.wsClient.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
@@ -255,7 +219,7 @@ export class PolymarketBotV5 {
           { slug, upAsk, downAsk },
           "REST price fallback also unavailable, skipping",
         );
-        return null;
+        return;
       }
 
       upQuote = { bestAsk: upAsk, bestBid: upAsk };
@@ -281,35 +245,31 @@ export class PolymarketBotV5 {
     }
 
     if (!favoriteTokenId || !favoriteSide) {
-      return null;
+      return;
     }
 
     const maxEntryPrice = this.v5Config.maxEntryPrice;
-    if (favoriteAsk >= 1 || favoriteAsk <= 0) {
-      this.logger.debug(
-        { slug, favoriteSide, favoriteAsk },
-        "Favorite price invalid (1 or 0), skipping",
-      );
-      return null;
-    }
-
     if (favoriteAsk > maxEntryPrice) {
       this.logger.debug(
         { slug, favoriteSide, favoriteAsk, maxEntryPrice },
         "Favorite price above max entry, skipping",
       );
-      return null;
+      return;
     }
 
-    return {
-      prefix,
+    this.logger.info(
+      { slug, favoriteSide, favoriteAsk, threshold: this.v5Config.entryThreshold },
+      "Favorite detected, entering position",
+    );
+
+    await this.enterPosition({
       conditionId,
       slug,
       tokenIds,
       favoriteTokenId,
       favoriteSide,
       estimatedPrice: favoriteAsk,
-    };
+    });
   }
 
   private async enterPosition(params: {
