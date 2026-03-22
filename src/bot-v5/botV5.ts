@@ -208,7 +208,7 @@ export class PolymarketBotV5 {
     let downQuote = this.wsClient.getFreshQuote(tokenIds.downTokenId);
 
     if (!upQuote || !downQuote) {
-      this.logger.debug(
+      this.logger.info(
         { slug, hasUpQuote: !!upQuote, hasDownQuote: !!downQuote },
         "WS quotes unavailable, falling back to REST",
       );
@@ -220,7 +220,7 @@ export class PolymarketBotV5 {
       ]);
 
       if (upAsk <= 0 || downAsk <= 0) {
-        this.logger.debug({ slug, upAsk, downAsk }, "REST price fallback also unavailable, skipping");
+        this.logger.warn({ slug, upAsk, downAsk }, "REST price fallback also unavailable, skipping");
         return;
       }
 
