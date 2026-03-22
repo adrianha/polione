@@ -711,15 +711,29 @@ export class PolymarketBotV5 {
       return;
     }
 
+    // Fetch actual token balance to avoid "not enough balance" errors
+    let sellAmount = position.filledSize;
+    try {
+      const positions = await this.dataClient.getPositions(
+        this.clobClient.getSignerAddress(),
+        position.conditionId,
+      );
+      const tokenPosition = positions.find((p) => p.asset === position.favoriteTokenId);
+      if (tokenPosition && Number(tokenPosition.size) > 0) {
+        sellAmount = Number(tokenPosition.size);
+      }
+    } catch {
+      // Fall back to filledSize
+    }
+
     this.logger.info(
       {
         slug: position.slug,
         favoriteSide: position.favoriteSide,
         favoriteTokenId: position.favoriteTokenId,
         side: "SELL",
-        amount: position.filledSize,
+        amount: sellAmount,
         price: roundPrice(targetPrice),
-        position,
       },
       "Placing exit market order",
     );
@@ -728,14 +742,14 @@ export class PolymarketBotV5 {
       const result = await this.clobClient.placeMarketOrder({
         tokenId: position.favoriteTokenId,
         side: "SELL",
-        amount: position.filledSize,
+        amount: sellAmount,
         price: roundPrice(targetPrice),
       });
 
       const orderError = this.extractOrderError(result);
       if (orderError) {
         this.logger.warn(
-          { slug: position.slug, reason, filledSize: position.filledSize, error: orderError },
+          { slug: position.slug, reason, amount: sellAmount, error: orderError },
           "Exit market sell rejected",
         );
 
