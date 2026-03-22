@@ -972,6 +972,7 @@ export class PolymarketBotV5 {
       ((record.order as Record<string, unknown> | undefined)?.status as string | undefined);
 
     const filledSize =
+      (record.original_size !== undefined ? Number(record.original_size) : undefined) ??
       (record.filledSize as number | undefined) ??
       (record.size_matched !== undefined ? Number(record.size_matched) : undefined) ??
       (record.takingAmount as number | undefined) ??
