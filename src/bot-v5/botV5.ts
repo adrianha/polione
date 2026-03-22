@@ -899,6 +899,12 @@ export class PolymarketBotV5 {
     if (exitPrice != null) {
       await this.notifyPositionClosed(position, reason, pnl);
     } else {
+      this.logger.warn(
+        { slug: position.slug, sellError },
+        "Failed to exit, transitioning to awaiting_resolution",
+      );
+      position.state = "awaiting_resolution";
+      await this.saveState();
       await this.notifyExitFailed(position, reason, sellError);
     }
   }
