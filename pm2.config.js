@@ -1,4 +1,4 @@
-const prefixes = ["sol-updown-5m", "eth-updown-5m"];
+const prefixes = ["sol-updown-5m"];
 
 module.exports = {
   apps: prefixes.map((prefix) => ({
