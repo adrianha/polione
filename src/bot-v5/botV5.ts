@@ -204,11 +204,29 @@ export class PolymarketBotV5 {
 
     this.wsClient.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
 
-    const upQuote = this.wsClient.getFreshQuote(tokenIds.upTokenId);
-    const downQuote = this.wsClient.getFreshQuote(tokenIds.downTokenId);
+    let upQuote = this.wsClient.getFreshQuote(tokenIds.upTokenId);
+    let downQuote = this.wsClient.getFreshQuote(tokenIds.downTokenId);
 
     if (!upQuote || !downQuote) {
-      return;
+      this.logger.debug(
+        { slug, hasUpQuote: !!upQuote, hasDownQuote: !!downQuote },
+        "WS quotes unavailable, falling back to REST",
+      );
+
+      // Fallback to REST API prices
+      const [upAsk, downAsk] = await Promise.all([
+        upQuote ? upQuote.bestAsk : this.clobClient.getPrice(tokenIds.upTokenId, "BUY"),
+        downQuote ? downQuote.bestAsk : this.clobClient.getPrice(tokenIds.downTokenId, "BUY"),
+      ]);
+
+      if (upAsk <= 0 || downAsk <= 0) {
+        this.logger.debug({ slug, upAsk, downAsk }, "REST price fallback also unavailable, skipping");
+        return;
+      }
+
+      // Use REST prices as quotes
+      upQuote = { bestAsk: upAsk, bestBid: upQuote?.bestBid ?? upAsk };
+      downQuote = { bestAsk: downAsk, bestBid: downQuote?.bestBid ?? downAsk };
     }
 
     const upAsk = upQuote.bestAsk;
