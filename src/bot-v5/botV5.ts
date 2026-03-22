@@ -529,7 +529,7 @@ export class PolymarketBotV5 {
 
     // Stop loss hit
     if (currentBid <= slPrice) {
-      await this.exitPosition(position, "stop_loss", slPrice);
+      await this.exitPosition(position, "stop_loss", currentBid);
       return;
     }
 
@@ -550,14 +550,14 @@ export class PolymarketBotV5 {
       }
 
       if (position.trailingTpActivated && currentBid <= tpPrice) {
-        await this.exitPosition(position, "trailing_tp", tpPrice);
+        await this.exitPosition(position, "trailing_tp", currentBid);
         return;
       }
     }
     // Fixed TP mode
     else {
       if (currentBid >= tpPrice) {
-        await this.exitPosition(position, "take_profit", tpPrice);
+        await this.exitPosition(position, "take_profit", currentBid);
         return;
       }
     }
