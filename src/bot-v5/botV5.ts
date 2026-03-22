@@ -103,7 +103,7 @@ export class PolymarketBotV5 {
     await this.loadState();
     this.logger.info(
       {
-        slugPrefixes: this.v5Config.slugPrefixes,
+        slugPrefix: this.v5Config.slugPrefix,
         entryThreshold: this.v5Config.entryThreshold,
         maxEntryPrice: this.v5Config.maxEntryPrice,
         tpOffset: `$+${Math.abs(this.v5Config.takeProfitPrice - this.v5Config.entryThreshold).toFixed(2)}`,
@@ -141,10 +141,8 @@ export class PolymarketBotV5 {
       return;
     }
 
-    for (const prefix of this.v5Config.slugPrefixes) {
-      if (this.stopped) break;
-      await this.processSlugPrefix(prefix);
-    }
+    if (this.stopped) return;
+    await this.processSlugPrefix(this.v5Config.slugPrefix);
 
     const now = Date.now();
     const redeemIntervalMs = this.v5Config.redeemIntervalSeconds * 1000;

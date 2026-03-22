@@ -9,7 +9,7 @@ const boolString = z
   .transform((value) => value === "true");
 
 const schema = z.object({
-  V5_SLUG_PREFIXES: z.string().default("sol-updown-5m"),
+  V5_SLUG_PREFIX: z.string().default("sol-updown-5m"),
   V5_MARKET_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
   V5_ENTRY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
   V5_MAX_ENTRY_PRICE: z.coerce.number().min(0).max(1).default(0.90),
@@ -29,7 +29,7 @@ const schema = z.object({
 });
 
 export interface V5Config {
-  slugPrefixes: string[];
+  slugPrefix: string;
   marketIntervalSeconds: number;
   entryThreshold: number;
   maxEntryPrice: number;
@@ -51,16 +51,12 @@ export interface V5Config {
 export const loadV5Config = (): V5Config => {
   const parsed = schema.parse(process.env);
 
-  const slugPrefixes = parsed.V5_SLUG_PREFIXES.split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  if (slugPrefixes.length === 0) {
-    throw new Error("V5_SLUG_PREFIXES must contain at least one prefix");
+  if (!parsed.V5_SLUG_PREFIX.trim()) {
+    throw new Error("V5_SLUG_PREFIX must not be empty");
   }
 
   return {
-    slugPrefixes,
+    slugPrefix: parsed.V5_SLUG_PREFIX.trim(),
     marketIntervalSeconds: parsed.V5_MARKET_INTERVAL_SECONDS,
     entryThreshold: parsed.V5_ENTRY_THRESHOLD,
     maxEntryPrice: parsed.V5_MAX_ENTRY_PRICE,
