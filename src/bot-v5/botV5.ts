@@ -207,26 +207,24 @@ export class PolymarketBotV5 {
     let upQuote = this.wsClient.getFreshQuote(tokenIds.upTokenId);
     let downQuote = this.wsClient.getFreshQuote(tokenIds.downTokenId);
 
+    // Fallback to REST API prices
     if (!upQuote || !downQuote) {
-      this.logger.info(
-        { slug, hasUpQuote: !!upQuote, hasDownQuote: !!downQuote },
-        "WS quotes unavailable, falling back to REST",
-      );
-
-      // Fallback to REST API prices
       const [upAsk, downAsk] = await Promise.all([
-        upQuote ? upQuote.bestAsk : this.clobClient.getPrice(tokenIds.upTokenId, "BUY"),
-        downQuote ? downQuote.bestAsk : this.clobClient.getPrice(tokenIds.downTokenId, "BUY"),
+        this.clobClient.getPrice(tokenIds.upTokenId, "BUY"),
+        this.clobClient.getPrice(tokenIds.downTokenId, "BUY"),
       ]);
 
       if (upAsk <= 0 || downAsk <= 0) {
-        this.logger.warn({ slug, upAsk, downAsk }, "REST price fallback also unavailable, skipping");
+        this.logger.warn(
+          { slug, upAsk, downAsk },
+          "REST price fallback also unavailable, skipping",
+        );
         return;
       }
 
-      // Use REST prices as quotes
-      upQuote = { bestAsk: upAsk, bestBid: upQuote?.bestBid ?? upAsk };
-      downQuote = { bestAsk: downAsk, bestBid: downQuote?.bestBid ?? downAsk };
+      upQuote = { bestAsk: upAsk, bestBid: upAsk };
+      downQuote = { bestAsk: downAsk, bestBid: downAsk };
+      this.logger.info({ slug, upAsk, downAsk }, "Using REST prices as quotes");
     }
 
     const upAsk = upQuote.bestAsk;
@@ -968,7 +966,11 @@ export class PolymarketBotV5 {
     return null;
   }
 
-  private parseOrderStatus(result: unknown): { status: string; filledSize?: number; price?: number } {
+  private parseOrderStatus(result: unknown): {
+    status: string;
+    filledSize?: number;
+    price?: number;
+  } {
     if (!result || typeof result !== "object") {
       return { status: "unknown" };
     }
@@ -1139,7 +1141,11 @@ export class PolymarketBotV5 {
     await this.telegramClient.sendHtml(message, `v5-redeem:${slug}`);
   }
 
-  private async notifyRedeemFailed(slug: string, conditionId: string, reason: string): Promise<void> {
+  private async notifyRedeemFailed(
+    slug: string,
+    conditionId: string,
+    reason: string,
+  ): Promise<void> {
     const message = [
       "<b>❌ V5 Redeem Failed</b>",
       `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
