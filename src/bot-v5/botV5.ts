@@ -4,7 +4,6 @@ import { GammaClient } from "../clients/gammaClient.js";
 import { PolyClobClient } from "../clients/clobClient.js";
 import { PolyRelayerClient } from "../clients/relayerClient.js";
 import { DataClient } from "../clients/dataClient.js";
-import { ClobWsClient } from "../clients/clobWsClient.js";
 import { TelegramClient, escapeHtml, truncateId } from "../clients/telegramClient.js";
 import { sleep, unixNow, getCurrentEpochTimestamp } from "../utils/time.js";
 import { SettlementService } from "../services/settlement.js";
@@ -69,7 +68,6 @@ export class PolymarketBotV5 {
   private readonly clobClient: PolyClobClient;
   private readonly relayerClient: PolyRelayerClient;
   private readonly dataClient: DataClient;
-  private readonly wsClient: ClobWsClient;
   private readonly telegramClient: TelegramClient;
   private readonly settlementService: SettlementService;
   private readonly redeemPrecheckService: RedeemPrecheckService;
@@ -83,7 +81,6 @@ export class PolymarketBotV5 {
     this.clobClient = new PolyClobClient(config);
     this.relayerClient = new PolyRelayerClient(config);
     this.dataClient = new DataClient(config);
-    this.wsClient = new ClobWsClient(config, logger);
     this.telegramClient = new TelegramClient({
       botToken: config.telegramBotToken,
       chatId: config.telegramChatId,
@@ -95,7 +92,6 @@ export class PolymarketBotV5 {
 
   stop(): void {
     this.stopped = true;
-    this.wsClient.stop();
   }
 
   async runForever(): Promise<void> {
@@ -115,8 +111,6 @@ export class PolymarketBotV5 {
       },
       "Bot V5 started",
     );
-
-    this.wsClient.start();
 
     while (!this.stopped) {
       try {
@@ -200,33 +194,15 @@ export class PolymarketBotV5 {
       return;
     }
 
-    this.wsClient.ensureSubscribed([tokenIds.upTokenId, tokenIds.downTokenId]);
+    const [upAsk, downAsk] = await Promise.all([
+      this.clobClient.getPrice(tokenIds.upTokenId, "BUY"),
+      this.clobClient.getPrice(tokenIds.downTokenId, "BUY"),
+    ]);
 
-    let upQuote = this.wsClient.getFreshQuote(tokenIds.upTokenId);
-    let downQuote = this.wsClient.getFreshQuote(tokenIds.downTokenId);
-
-    // Fallback to REST API prices
-    if (!upQuote || !downQuote) {
-      const [upAsk, downAsk] = await Promise.all([
-        this.clobClient.getPrice(tokenIds.upTokenId, "BUY"),
-        this.clobClient.getPrice(tokenIds.downTokenId, "BUY"),
-      ]);
-
-      if (upAsk <= 0 || downAsk <= 0) {
-        this.logger.warn(
-          { slug, upAsk, downAsk },
-          "REST price fallback also unavailable, skipping",
-        );
-        return;
-      }
-
-      upQuote = { bestAsk: upAsk, bestBid: upAsk };
-      downQuote = { bestAsk: downAsk, bestBid: downAsk };
-      this.logger.debug({ slug, upAsk, downAsk }, "Using REST prices as quotes");
+    if (upAsk <= 0 || downAsk <= 0) {
+      this.logger.warn({ slug, upAsk, downAsk }, "Prices unavailable, skipping");
+      return;
     }
-
-    const upAsk = upQuote.bestAsk;
-    const downAsk = downQuote.bestAsk;
 
     let favoriteTokenId: string | null = null;
     let favoriteSide: "up" | "down" | null = null;
@@ -393,7 +369,7 @@ export class PolymarketBotV5 {
 
         if (statusLower === "matched" || statusLower === "filled") {
           const filledSize = orderStatus.filledSize ?? position.size;
-          const entryPrice = roundPrice(orderStatus.price ?? this.estimateEntryPrice(position));
+          const entryPrice = roundPrice(orderStatus.price ?? this.v5Config.entryThreshold);
           position.filledSize = filledSize;
           position.entryPrice = entryPrice;
           position.state = "open";
@@ -452,14 +428,14 @@ export class PolymarketBotV5 {
         if (favPosition && favPosition.size > 0) {
           const filledSize = Number(favPosition.size);
           position.filledSize = filledSize;
-          position.entryPrice = this.estimateEntryPrice(position);
+          position.entryPrice = roundPrice(this.v5Config.entryThreshold);
           position.state = "open";
           position.filledAtMs = Date.now();
           position.highWaterMark = position.entryPrice;
 
           this.logger.info(
             { slug: position.slug, filledSize, entryPrice: position.entryPrice },
-            "Entry filled",
+            "Entry filled via position polling",
           );
 
           await this.saveState();
@@ -482,8 +458,7 @@ export class PolymarketBotV5 {
   }
 
   private async waitForEntryFillDryRun(position: V5Position): Promise<void> {
-    const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-    const entryPrice = quote ? quote.bestAsk : this.v5Config.entryThreshold;
+    const entryPrice = this.v5Config.entryThreshold;
 
     position.filledSize = position.size;
     position.entryPrice = roundPrice(entryPrice);
@@ -503,14 +478,6 @@ export class PolymarketBotV5 {
 
     await this.saveState();
     await this.placeExitOrders(position);
-  }
-
-  private estimateEntryPrice(position: V5Position): number {
-    const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-    if (quote) {
-      return quote.bestAsk;
-    }
-    return this.v5Config.entryThreshold;
   }
 
   private async placeExitOrders(position: V5Position): Promise<void> {
@@ -551,10 +518,8 @@ export class PolymarketBotV5 {
     }
 
     // state === "exiting" — poll-based exit
-    const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-    if (!quote) return;
-
-    const currentBid = quote.bestBid;
+    const currentBid = await this.clobClient.getPrice(position.favoriteTokenId, "SELL");
+    if (currentBid <= 0) return;
 
     if (currentBid > position.highWaterMark) {
       position.highWaterMark = currentBid;
@@ -805,7 +770,7 @@ export class PolymarketBotV5 {
       }
     }
 
-    await this.closePosition(position, reason);
+    await this.closePosition(position, reason, targetPrice);
   }
 
   private computeTpPrice(entryPrice: number): number {
@@ -879,12 +844,17 @@ export class PolymarketBotV5 {
     await this.saveState();
   }
 
-  private async closePosition(position: V5Position, reason: ExitReason): Promise<void> {
+  private async closePosition(
+    position: V5Position,
+    reason: ExitReason,
+    exitPrice?: number,
+  ): Promise<void> {
     position.state = "closed";
     position.exitReason = reason;
     position.closedAtMs = Date.now();
 
-    const pnl = this.estimatePnl(position);
+    const pnl =
+      exitPrice != null ? roundPrice((exitPrice - position.entryPrice) * position.filledSize) : 0;
 
     if (pnl < 0) {
       this.state.consecutiveLosses += 1;
@@ -904,12 +874,6 @@ export class PolymarketBotV5 {
     );
 
     await this.notifyPositionClosed(position, reason, pnl);
-  }
-
-  private estimatePnl(position: V5Position): number {
-    const quote = this.wsClient.getFreshQuote(position.favoriteTokenId);
-    const exitPrice = quote ? quote.bestBid : 0;
-    return roundPrice((exitPrice - position.entryPrice) * position.filledSize);
   }
 
   private buildCurrentSlug(prefix: string): string {
