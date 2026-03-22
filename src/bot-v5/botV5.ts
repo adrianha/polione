@@ -733,7 +733,7 @@ export class PolymarketBotV5 {
         favoriteTokenId: position.favoriteTokenId,
         side: "SELL",
         amount: sellAmount,
-        price: roundPrice(targetPrice),
+        // price: roundPrice(targetPrice),
       },
       "Placing exit market order",
     );
