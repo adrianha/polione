@@ -2,10 +2,13 @@ import type { Logger } from "pino";
 import type { BotConfig, MarketRecord, TokenIds } from "../types/domain.js";
 import { GammaClient } from "../clients/gammaClient.js";
 import { PolyClobClient } from "../clients/clobClient.js";
+import { PolyRelayerClient } from "../clients/relayerClient.js";
 import { DataClient } from "../clients/dataClient.js";
 import { ClobWsClient } from "../clients/clobWsClient.js";
 import { TelegramClient, escapeHtml, truncateId } from "../clients/telegramClient.js";
 import { sleep, unixNow, getCurrentEpochTimestamp } from "../utils/time.js";
+import { SettlementService } from "../services/settlement.js";
+import { RedeemPrecheckService } from "../services/redeemPrecheck.js";
 import type { V5Config } from "./config.js";
 import type { V5Position, V5State, ExitReason } from "./types.js";
 import { promises as fs } from "node:fs";
@@ -60,12 +63,16 @@ const roundPrice = (price: number): number => Number(price.toFixed(4));
 export class PolymarketBotV5 {
   private stopped = false;
   private state: V5State = { positions: {}, consecutiveLosses: 0 };
+  private lastRedeemRunMs = 0;
 
   private readonly gammaClient: GammaClient;
   private readonly clobClient: PolyClobClient;
+  private readonly relayerClient: PolyRelayerClient;
   private readonly dataClient: DataClient;
   private readonly wsClient: ClobWsClient;
   private readonly telegramClient: TelegramClient;
+  private readonly settlementService: SettlementService;
+  private readonly redeemPrecheckService: RedeemPrecheckService;
 
   constructor(
     private readonly config: BotConfig,
@@ -74,6 +81,7 @@ export class PolymarketBotV5 {
   ) {
     this.gammaClient = new GammaClient(config);
     this.clobClient = new PolyClobClient(config);
+    this.relayerClient = new PolyRelayerClient(config);
     this.dataClient = new DataClient(config);
     this.wsClient = new ClobWsClient(config, logger);
     this.telegramClient = new TelegramClient({
@@ -81,6 +89,8 @@ export class PolymarketBotV5 {
       chatId: config.telegramChatId,
       logger,
     });
+    this.settlementService = new SettlementService(this.relayerClient);
+    this.redeemPrecheckService = new RedeemPrecheckService(config);
   }
 
   stop(): void {
@@ -134,6 +144,13 @@ export class PolymarketBotV5 {
     for (const prefix of this.v5Config.slugPrefixes) {
       if (this.stopped) break;
       await this.processSlugPrefix(prefix);
+    }
+
+    const now = Date.now();
+    const redeemIntervalMs = this.v5Config.redeemIntervalSeconds * 1000;
+    if (now - this.lastRedeemRunMs >= redeemIntervalMs) {
+      this.lastRedeemRunMs = now;
+      await this.processRedeemablePositions();
     }
   }
 
@@ -266,6 +283,7 @@ export class PolymarketBotV5 {
       filledAtMs: null,
       closedAtMs: null,
       createdAtMs: Date.now(),
+      redeemAttempts: 0,
     };
 
     this.state.positions[slug] = position;
@@ -509,6 +527,10 @@ export class PolymarketBotV5 {
       return;
     }
 
+    if (position.state === "awaiting_resolution" || position.state === "redeeming") {
+      return;
+    }
+
     if (position.state === "open") {
       await this.placeExitOrders(position);
       return;
@@ -575,6 +597,131 @@ export class PolymarketBotV5 {
     }
   }
 
+  private async processRedeemablePositions(): Promise<void> {
+    if (!this.v5Config.redeemEnabled) {
+      return;
+    }
+
+    for (const position of Object.values(this.state.positions)) {
+      if (this.stopped) break;
+      if (position.state !== "awaiting_resolution") continue;
+
+      await this.redeemPosition(position);
+    }
+  }
+
+  private async redeemPosition(position: V5Position): Promise<void> {
+    const { conditionId, slug } = position;
+
+    if (position.redeemAttempts >= this.v5Config.redeemMaxRetries) {
+      this.logger.warn(
+        { slug, conditionId, redeemAttempts: position.redeemAttempts },
+        "Max redeem retries exhausted, closing position",
+      );
+      position.state = "closed";
+      position.exitReason = "redeemed";
+      position.closedAtMs = Date.now();
+      await this.saveState();
+      await this.notifyRedeemFailed(slug, conditionId, "max retries exhausted");
+      return;
+    }
+
+    if (this.config.dryRun) {
+      this.logger.info({ slug, conditionId }, "[DRY RUN] Would redeem position");
+      position.state = "closed";
+      position.exitReason = "redeemed";
+      position.closedAtMs = Date.now();
+      await this.saveState();
+      return;
+    }
+
+    // Precheck if eligible for redemption
+    if (this.redeemPrecheckService.isAvailable()) {
+      try {
+        const precheck = await this.redeemPrecheckService.check({
+          conditionId,
+          positionsAddress: this.clobClient.getSignerAddress() as `0x${string}`,
+        });
+
+        this.logger.debug({ slug, conditionId, precheck }, "Redeem precheck result");
+
+        if (precheck.status === "not_resolved") {
+          this.logger.debug({ slug, conditionId }, "Condition not yet resolved, will retry");
+          return;
+        }
+
+        if (precheck.status === "no_redeemable_balance") {
+          this.logger.info({ slug, conditionId }, "No redeemable balance, closing position");
+          position.state = "closed";
+          position.exitReason = "redeemed";
+          position.closedAtMs = Date.now();
+          await this.saveState();
+          return;
+        }
+
+        if (precheck.status === "permanent_error") {
+          this.logger.error(
+            { slug, conditionId, reason: precheck.reason },
+            "Permanent error on redeem precheck, closing position",
+          );
+          position.state = "closed";
+          position.exitReason = "redeemed";
+          position.closedAtMs = Date.now();
+          await this.saveState();
+          await this.notifyRedeemFailed(slug, conditionId, precheck.reason ?? "permanent error");
+          return;
+        }
+      } catch (error) {
+        this.logger.warn({ slug, conditionId, error }, "Redeem precheck failed, will retry");
+        return;
+      }
+    }
+
+    // Submit redeem transaction
+    position.state = "redeeming";
+    position.redeemAttempts += 1;
+    await this.saveState();
+
+    this.logger.info(
+      { slug, conditionId, attempt: position.redeemAttempts },
+      "Submitting redeem transaction",
+    );
+
+    try {
+      const result = await this.settlementService.redeemResolvedPositions(conditionId);
+
+      if (result && "dryRun" in result) {
+        this.logger.info({ slug, conditionId }, "[DRY RUN] Redeem submitted");
+        position.state = "closed";
+        position.exitReason = "redeemed";
+        position.closedAtMs = Date.now();
+        await this.saveState();
+        return;
+      }
+
+      if (result === null) {
+        this.logger.warn({ slug, conditionId }, "Relayer not available, will retry");
+        position.state = "awaiting_resolution";
+        await this.saveState();
+        return;
+      }
+
+      this.logger.info(
+        { slug, conditionId, attempt: position.redeemAttempts },
+        "Redeem transaction submitted successfully",
+      );
+      position.state = "closed";
+      position.exitReason = "redeemed";
+      position.closedAtMs = Date.now();
+      await this.saveState();
+      await this.notifyRedeemSuccess(slug, conditionId);
+    } catch (error) {
+      this.logger.error({ slug, conditionId, error }, "Redeem transaction failed");
+      position.state = "awaiting_resolution";
+      await this.saveState();
+    }
+  }
+
   private async exitPosition(
     position: V5Position,
     reason: ExitReason,
@@ -612,6 +759,17 @@ export class PolymarketBotV5 {
           { slug: position.slug, reason, filledSize: position.filledSize, error: orderError },
           "Exit market sell rejected",
         );
+
+        if (reason === "market_resolved" && this.v5Config.redeemEnabled) {
+          this.logger.info(
+            { slug: position.slug },
+            "Market sell failed at resolution, transitioning to awaiting_resolution",
+          );
+          position.state = "awaiting_resolution";
+          position.exitReason = reason;
+          await this.saveState();
+          return;
+        }
       } else {
         this.logger.info(
           { slug: position.slug, reason, filledSize: position.filledSize, targetPrice },
@@ -620,6 +778,17 @@ export class PolymarketBotV5 {
       }
     } catch (error) {
       this.logger.error({ slug: position.slug, reason, error }, "Exit market sell failed");
+
+      if (reason === "market_resolved" && this.v5Config.redeemEnabled) {
+        this.logger.info(
+          { slug: position.slug },
+          "Market sell failed at resolution, transitioning to awaiting_resolution",
+        );
+        position.state = "awaiting_resolution";
+        position.exitReason = reason;
+        await this.saveState();
+        return;
+      }
     }
 
     await this.closePosition(position, reason);
@@ -822,6 +991,11 @@ export class PolymarketBotV5 {
         if (typeof this.state.consecutiveLosses !== "number") {
           this.state.consecutiveLosses = 0;
         }
+        for (const position of Object.values(this.state.positions)) {
+          if (typeof position.redeemAttempts !== "number") {
+            position.redeemAttempts = 0;
+          }
+        }
       }
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
@@ -935,5 +1109,26 @@ export class PolymarketBotV5 {
     ].join("\n");
 
     await this.telegramClient.sendHtml(message, "v5-max-loss");
+  }
+
+  private async notifyRedeemSuccess(slug: string, conditionId: string): Promise<void> {
+    const message = [
+      "<b>✅ V5 Position Redeemed</b>",
+      `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
+      `<b>Condition</b>: <code>${escapeHtml(truncateId(conditionId))}</code>`,
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, `v5-redeem:${slug}`);
+  }
+
+  private async notifyRedeemFailed(slug: string, conditionId: string, reason: string): Promise<void> {
+    const message = [
+      "<b>❌ V5 Redeem Failed</b>",
+      `<b>Market</b>: <code>${escapeHtml(slug)}</code>`,
+      `<b>Condition</b>: <code>${escapeHtml(truncateId(conditionId))}</code>`,
+      `<b>Reason</b>: <code>${escapeHtml(reason)}</code>`,
+    ].join("\n");
+
+    await this.telegramClient.sendHtml(message, `v5-redeem-fail:${slug}`);
   }
 }

@@ -1,6 +1,6 @@
-export type PositionState = "entering" | "open" | "exiting" | "closed";
+export type PositionState = "entering" | "open" | "exiting" | "awaiting_resolution" | "redeeming" | "closed";
 
-export type ExitReason = "take_profit" | "stop_loss" | "trailing_tp" | "market_resolved" | "manual";
+export type ExitReason = "take_profit" | "stop_loss" | "trailing_tp" | "market_resolved" | "redeemed" | "manual";
 
 export interface V5Position {
   conditionId: string;
@@ -19,6 +19,7 @@ export interface V5Position {
   filledAtMs: number | null;
   closedAtMs: number | null;
   createdAtMs: number;
+  redeemAttempts: number;
 }
 
 export interface V5State {

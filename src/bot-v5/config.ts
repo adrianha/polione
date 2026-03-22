@@ -23,6 +23,9 @@ const schema = z.object({
   V5_ORDER_FILL_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   V5_ORDER_FILL_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1_000),
   V5_STATE_FILE_PATH: z.string().default(".bot-v5-state.json"),
+  V5_REDEEM_ENABLED: boolString.default(true),
+  V5_REDEEM_MAX_RETRIES: z.coerce.number().int().positive().default(8),
+  V5_REDEEM_INTERVAL_SECONDS: z.coerce.number().positive().default(60),
 });
 
 export interface V5Config {
@@ -40,6 +43,9 @@ export interface V5Config {
   orderFillTimeoutMs: number;
   orderFillPollIntervalMs: number;
   stateFilePath: string;
+  redeemEnabled: boolean;
+  redeemMaxRetries: number;
+  redeemIntervalSeconds: number;
 }
 
 export const loadV5Config = (): V5Config => {
@@ -68,5 +74,8 @@ export const loadV5Config = (): V5Config => {
     orderFillTimeoutMs: parsed.V5_ORDER_FILL_TIMEOUT_MS,
     orderFillPollIntervalMs: parsed.V5_ORDER_FILL_POLL_INTERVAL_MS,
     stateFilePath: parsed.V5_STATE_FILE_PATH,
+    redeemEnabled: parsed.V5_REDEEM_ENABLED,
+    redeemMaxRetries: parsed.V5_REDEEM_MAX_RETRIES,
+    redeemIntervalSeconds: parsed.V5_REDEEM_INTERVAL_SECONDS,
   };
 };
